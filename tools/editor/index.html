@@ -64,8 +64,9 @@
   .swatch { display: inline-block; width: 20px; height: 20px; margin-left: 6px; vertical-align: middle; border: 1px solid #000; }
   .form input { width: 100%; background: #d8d8d8; border: 1px solid #000; padding: 3px 6px; font: inherit; }
   .num { width: 54px !important; text-align: right; }
+  .grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 14px; }
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 14px; }
-  .grid3 label, .grid4 label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .grid2 label, .grid3 label, .grid4 label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
   .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px 14px; }
   .wide { grid-column: 1 / -1; }
   #savebar { display: none; background: var(--panel); border: 1px solid var(--yellow); margin: 10px 12px 0;
@@ -337,6 +338,9 @@ async function showPerson(id) {
       <tr><td>Job</td><td>${jobSelect("international.job", e.international.job, e.jobs)}</td></tr>
       <tr><td>Caps</td><td>${input("international.caps", e.international.caps)}</td></tr>
       <tr><td>Goals</td><td>${input("international.goals", e.international.goals)}</td></tr></table></div>
+    <div class="panel"><h3>Personal (0 to 20)</h3><div class="grid2">${e.personal.map((x, i) =>
+      `<label>${esc(x.name)} ${input(`personal.${i}`, x.value)}</label>`).join("")}</div>
+      <p class="note">The game shows only Determination, in a player's profile. 0 is the value of most people in the data.</p></div>
     ${pl ? `<div class="panel wide"><h3>Player</h3>
       <div class="grid4">
         <label>Current ability ${input("ca", pl.ca)}</label><label>Potential ability ${input("pa", pl.pa)}</label>
@@ -344,11 +348,13 @@ async function showPerson(id) {
         <label>Reputation 3 ${input("rep.2", pl.rep[2])}</label></div>
       <h3 style="margin-top:12px">Positions (1 to 20)</h3><div class="grid4">${pl.positions.map((x, i) =>
         `<label>${esc(x.name)} ${input(`positions.${i}`, x.value)}</label>`).join("")}</div>
-      <h3 style="margin-top:12px">Attributes (1 to 20, as the data stores them)</h3><div class="grid3">${pl.attributes.map((x, i) =>
+      <h3 style="margin-top:12px">Attributes (0 to 20, as the data stores them; Determination is under Personal)</h3><div class="grid3">${pl.attributes.map((x, i) =>
         `<label>${esc(x.name)} ${input(`attributes.${i}`, x.value)}</label>`).join("")}</div>
+      <h3 style="margin-top:12px">Hidden attributes (0 to 20)</h3><div class="grid3">${pl.hidden.map((x, i) =>
+        `<label>${esc(x.name)} ${input(`hidden.${i}`, x.value)}</label>`).join("")}</div>
       <details style="margin-top:10px"><summary>Other values of the player data, not named yet</summary><div class="grid4">${pl.other.map((x, i) =>
         `<label>0x${x.offset.toString(16)} ${input(`other.${i}`, x.value)}</label>`).join("")}</div></details>
-      <p class="note">The game shows some attributes (Anticipation, Decisions, Dribbling and others) relative to the current ability, so its numbers can differ from these, as with the original editor.</p></div>` : ""}
+      <p class="note">In the data 0 means random: the game fills it when a game starts. The game shows some attributes (Anticipation, Decisions, Dribbling, One On Ones, Penalties, Throw Ins and others) relative to the current ability, so its numbers can differ from these, as with the original editor.</p></div>` : ""}
     </div>`;
   document.getElementById("back").onclick = () => history.back();
   wirePicture("face", p.picture);
@@ -356,7 +362,7 @@ async function showPerson(id) {
                          common: "/api/names?t=common&q=", nation: "/api/nations?q=", club: "/api/clubs?q="});
   document.getElementById("apply").onclick = async () => {
     const ch = {names: {}, contract: {}, international: {},
-                player: pl ? {rep: [], positions: [], attributes: [], other: []} : undefined};
+                personal: [], player: pl ? {rep: [], positions: [], attributes: [], hidden: [], other: []} : undefined};
     const msg = document.getElementById("emsg");
     for (const el of main.querySelectorAll("[data-key]")) {
       const k = el.dataset.key, v = el.value;
@@ -370,6 +376,7 @@ async function showPerson(id) {
       else if (k.startsWith("contract.")) { const f = k.slice(9); ch.contract[f] = f === "joined" || f === "expires" ? v : +v; }
       else if (k.startsWith("international.")) ch.international[k.slice(14)] = +v;
       else if (k === "ca" || k === "pa") ch.player[k] = +v;
+      else if (k.startsWith("personal.")) ch.personal[+k.slice(9)] = +v;
       else { const [list, i] = k.split("."); ch.player[list][+i] = +v; }
     }
     const r = await fetch(`/api/edit/${id}`, {method: "POST", body: JSON.stringify(ch)});

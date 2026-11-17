@@ -17,7 +17,8 @@ record. It never deletes a file.
 
 It edits clubs: names, nation, divisions, status, balance, stadium, attendances, training facilities, reputation,
 colours and rivals. It edits people: names, birth date, nations, the club contract (club, job, joined, expires, wage, value), the
-national team, and for a player the abilities, reputations, positions and attributes, as the data stores them. The changes stay in memory until Save, which writes the whole data set into
+national team, the personal attributes, and for a player the abilities, reputations, positions, attributes and
+hidden attributes, as the data stores them. The changes stay in memory until Save, which writes the whole data set into
 a new folder <user folder>/Databases/<name>, which the game plays as a custom database. The opened data folder
 is never written.
 """
@@ -44,7 +45,7 @@ NAME_TABLES = {"first": 13, "second": 14, "common": 15}
 
 # The staff row (format 1, 157 bytes, and format 2, 110 bytes: the same offsets up to 0x60).
 S_NAMES = {"first": 4, "second": 8, "common": 0xC}
-S_BORN, S_NATION, S_NATION2, S_CLUB, S_DET = 0x10, 0x1A, 0x1E, 0x39, 0x58
+S_BORN, S_NATION, S_NATION2, S_CLUB = 0x10, 0x1A, 0x1E, 0x39
 S_CAPS, S_GOALS, S_NAT_CLUB, S_NAT_JOB = 0x22, 0x23, 0x24, 0x28     # international: caps, goals, team, job
 S_JOB, S_JOINED, S_EXPIRES, S_WAGE, S_VALUE = 0x3D, 0x3E, 0x46, 0x4E, 0x52   # the club contract; wage a week, value
 # The jobs, from database_get_job_name 0x53ad00 (jump table 0x53b384); 14 has no name there.
@@ -59,14 +60,27 @@ P_CA, P_PA, P_REP = 5, 7, 9             # i16 each; three reputations from 9
 POSITIONS = ["Goalkeeper", "Sweeper", "Defender", "Defensive midfielder", "Midfielder", "Attacking midfielder",
              "Attacker", "Wing back", "Right side", "Left side", "Centre", "Free role"]
 P_POSITIONS = 0x0F
+# The 42 attribute bytes 0x1b..0x44 are in the alphabetical order of the original editor's field names
+# (staff_pl_acceleration to staff_pl_work_rate, strings of cm0102ed.exe); the getter 0x543540 (jump table 0x543a94)
+# reads the shown ones at these offsets, under the game's names (0x5428a0, table 0x543158).
 ATTRIBUTES = [("Acceleration", 0x1B), ("Aggression", 0x1C), ("Agility", 0x1D), ("Anticipation", 0x1E),
               ("Balance", 0x1F), ("Bravery", 0x20), ("Creativity", 0x43), ("Crossing", 0x23), ("Decisions", 0x24),
-              ("Determination", "staff"), ("Dribbling", 0x26), ("Finishing", 0x27), ("Flair", 0x28),
+              ("Dribbling", 0x26), ("Finishing", 0x27), ("Flair", 0x28),
               ("Handling", 0x2A), ("Heading", 0x2B), ("Influence", 0x2F), ("Jumping", 0x2E), ("Long Shots", 0x31),
               ("Marking", 0x32), ("Off The Ball", 0x33), ("Pace", 0x36), ("Passing", 0x37), ("Positioning", 0x39),
               ("Reflexes", 0x3A), ("Set Pieces", 0x29), ("Stamina", 0x3C), ("Strength", 0x3D), ("Tackling", 0x3E),
               ("Teamwork", 0x3F), ("Technique", 0x40), ("Work Rate", 0x44)]
-P_OTHER = [o for o in range(0x1B, 0x46) if o not in {a[1] for a in ATTRIBUTES}]   # the bytes not yet named
+# The bytes the game does not show (docs/research/2026-10-21-goalkeeper-attributes.md has their reads).
+HIDDEN = [("Consistency", 0x21), ("Corners", 0x22), ("Dirtiness", 0x25), ("Important Matches", 0x2C),
+          ("Injury Proneness", 0x2D), ("Left Foot", 0x30), ("Natural Fitness", 0x34), ("One On Ones", 0x35),
+          ("Penalties", 0x38), ("Right Foot", 0x3B), ("Throw Ins", 0x41), ("Versatility", 0x42)]
+P_OTHER = [0x45]         # the last byte of the row: 2 in every row of the original data, its use not read yet
+# The personal attributes of every person, staff row 0x56..0x5d, in the order of the original editor's field names
+# (staff_adaptability to staff_temperament). Reads: ambition 0x57 (deserved squad status 0x4ca4ee), determination
+# 0x58 (0x543540), loyalty 0x59 and temperament 0x5d (staff_fade_staff_relationships 0x547fb0, 0x548016),
+# professionalism 0x5b (game_check_players_missing_training 0x5d6b7e, AWOL::daily_update 0x4191fc).
+PERSONAL = [("Adaptability", 0x56), ("Ambition", 0x57), ("Determination", 0x58), ("Loyalty", 0x59),
+            ("Pressure", 0x5A), ("Professionalism", 0x5B), ("Sportsmanship", 0x5C), ("Temperament", 0x5D)]
 
 # The club row (club.dat and nat_club.dat, 581 bytes; include/database.h struct club, and the code that reads it).
 C_NAME, C_SHORT, C_NATION, C_DIVISION, C_LAST_DIVISION = 0x04, 0x38, 0x53, 0x57, 0x5B
@@ -166,12 +180,14 @@ class Data:
         v["international"] = dict(team=i32(s, S_NAT_CLUB), job=s[S_NAT_JOB], caps=s[S_CAPS], goals=s[S_GOALS])
         v["international"]["team_name"] = self.clubs.get(v["international"]["team"], {}).get("name", "")
         v["jobs"] = JOBS
+        v["personal"] = [dict(name=n, value=s[o]) for n, o in PERSONAL]
         if p is not None:
             v["player"] = dict(
                 ca=struct.unpack_from("<h", p, P_CA)[0], pa=struct.unpack_from("<h", p, P_PA)[0],
                 rep=list(struct.unpack_from("<hhh", p, P_REP)),
                 positions=[dict(name=n, value=p[P_POSITIONS + i]) for i, n in enumerate(POSITIONS)],
-                attributes=[dict(name=n, value=s[S_DET] if o == "staff" else p[o]) for n, o in ATTRIBUTES],
+                attributes=[dict(name=n, value=p[o]) for n, o in ATTRIBUTES],
+                hidden=[dict(name=n, value=p[o]) for n, o in HIDDEN],
                 other=[dict(offset=o, value=p[o]) for o in P_OTHER])
         return v
 
@@ -232,6 +248,10 @@ class Data:
                 if not 0 <= int(n[k]) <= 255:
                     return f"{k} must be 0 to 255"
                 s[o] = int(n[k])
+        for (n, o), v in zip(PERSONAL, ch.get("personal", [])):
+            if not 0 <= int(v) <= 20:
+                return f"{n} must be 0 to 20"
+            s[o] = int(v)
         pl = ch.get("player")
         if pl and p is not None:
             for k, o in (("ca", P_CA), ("pa", P_PA)):
@@ -248,13 +268,10 @@ class Data:
                 if not 1 <= int(v) <= 20:
                     return "a position must be 1 to 20"
                 p[P_POSITIONS + i] = int(v)
-            for (n, o), v in zip(ATTRIBUTES, pl.get("attributes", [])):
-                if not 1 <= int(v) <= 20:
-                    return f"{n} must be 1 to 20"
-                if o == "staff":
-                    s[S_DET] = int(v)
-                else:
-                    p[o] = int(v)
+            for (n, o), v in list(zip(ATTRIBUTES, pl.get("attributes", []))) + list(zip(HIDDEN, pl.get("hidden", []))):
+                if not 0 <= int(v) <= 20:
+                    return f"{n} must be 0 to 20"
+                p[o] = int(v)
             for o, v in zip(P_OTHER, pl.get("other", [])):
                 if not 0 <= int(v) <= 255:
                     return "a value must be 0 to 255"
