@@ -470,6 +470,7 @@ static int draw_frame(void)
         /* The target has the size of the work texture and scale 1; SDL gives back the window's view after. */
         SDL_RenderCopy(renderer, texture, NULL, NULL);
         SDL_RenderSetScale(renderer, (float)work_k, (float)work_k);
+        pictures_draw(renderer);         /* faces and badges at the window's size (pictures.c) */
         names_draw(renderer);
         SDL_SetRenderTarget(renderer, NULL);
         SDL_RenderClear(renderer);
@@ -478,6 +479,7 @@ static int draw_frame(void)
         if (work) SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear);   /* the target failed: no uneven letters */
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, NULL, NULL);
+        pictures_draw(renderer);
         names_draw(renderer);
     }
     return 1;

@@ -26,6 +26,7 @@ static struct {
     uint32_t widget, w, h;
     int32_t x1, y1, y2;
     const uint8_t *badge;
+    const char *path;
 } drawing[4];                       /* a draw can draw another widget inside it */
 static int depth;
 
@@ -41,10 +42,12 @@ int list_badges_before(uint32_t widget)
     int32_t x2 = (int32_t)rd32(g_mem, widget + W_X2), y2 = (int32_t)rd32(g_mem, widget + W_Y2);
     uint32_t h = y2 - y1 + 1 > 2 * (int32_t)MARGIN + 4 ? (uint32_t)(y2 - y1 + 1) - 2 * MARGIN : 0, w = 0;
     if (!h || !pictures_any_badge() || x1 + (int32_t)(h + GAP) >= x2) return 0;
-    const uint8_t *badge = pictures_club_badge(rd32(g_mem, widget + W_DATA), h, &w);
+    const char *path = NULL;
+    const uint8_t *badge = pictures_club_badge(rd32(g_mem, widget + W_DATA), h, &w, &path);
     if (w > h) badge = NULL;        /* wider than the box: not shown */
     drawing[depth].widget = widget;
     drawing[depth].badge = badge;
+    drawing[depth].path = path;
     drawing[depth].w = w;
     drawing[depth].h = h;
     drawing[depth].x1 = x1;
@@ -62,7 +65,8 @@ void list_badges_after(void)
     depth--;
     wr32(g_mem, drawing[depth].widget + W_X1, (uint32_t)drawing[depth].x1);
     if (!drawing[depth].badge) return;
-    pictures_blend(drawing[depth].badge, drawing[depth].w, drawing[depth].h,
-                   drawing[depth].x1 + (int32_t)(drawing[depth].h - drawing[depth].w) / 2,
-                   drawing[depth].y1 + (int32_t)MARGIN, drawing[depth].y1, drawing[depth].y2);
+    int32_t x = drawing[depth].x1 + (int32_t)(drawing[depth].h - drawing[depth].w) / 2;
+    int32_t y = drawing[depth].y1 + (int32_t)MARGIN;
+    pictures_blend(drawing[depth].badge, drawing[depth].w, drawing[depth].h, x, y, drawing[depth].y1, drawing[depth].y2);
+    pictures_sharp_add(PICTURE_BADGE, drawing[depth].path, x, y, drawing[depth].w, drawing[depth].h);
 }

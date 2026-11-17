@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <SDL.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
@@ -49,11 +50,13 @@ static const uint32_t frame_ground[3] = {16, 0, 74};   /* dark blue behind a tra
 #define ACTIVE_MAX 8
 static Picture *active[ACTIVE_MAX];  /* the pictures that pictures_find found */
 
-#define ALPHA_MAX 8
+#define OURS_MAX 8
 static struct {
     uint32_t pic, pixels, w, h;
-    uint8_t *rgba;                  /* host memory: w x h, 4 bytes a pixel */
-} alpha[ALPHA_MAX];                 /* the badges made by pictures_load, for the blit */
+    PictureKind kind;
+    char path[PICTURE_PATH];
+    uint8_t *rgba;                  /* a badge's pixels in host memory, w x h, 4 bytes a pixel */
+} ours[OURS_MAX];                   /* the pictures made by pictures_load, for the blit */
 
 uint32_t pictures_call_this(uint32_t fn, uint32_t self, int n, const uint32_t *args)
 {
@@ -188,47 +191,58 @@ static uint16_t rgb565(uint32_t r, uint32_t g, uint32_t b)
     return (uint16_t)((r >> 3) << 11 | (g >> 2) << 5 | (b >> 3));
 }
 
-/* The frame: a thin light line; the face covers the inside, cut at the sides (centred) or at the bottom
- * (a portrait keeps the head), on the dark blue. */
-static void make_frame(uint8_t *px, uint32_t w, uint32_t h, const uint8_t *src, int sw, int sh)
+/* The RGBA pixels of a picture at w x h: a badge whole and transparent where it is; a frame opaque, a light
+ * line `line` pixels wide around the face, which covers the inside, cut at the sides (centred) or at the
+ * bottom (a portrait keeps the head), on the dark blue. NULL when there is no memory. */
+static uint8_t *make_rgba(PictureKind kind, const uint8_t *src, int sw, int sh, uint32_t w, uint32_t h, uint32_t line)
 {
+    uint8_t *rgba = malloc((size_t)w * h * 4);
+    if (!rgba) return NULL;
+    if (kind == PICTURE_BADGE) {
+        scale_rgba(rgba, w, h, src, sw, sh, 0, 0, (uint32_t)sw, (uint32_t)sh);
+        return rgba;
+    }
     for (uint32_t y = 0; y < h; y++)
         for (uint32_t x = 0; x < w; x++) {
-            int line = x == 0 || y == 0 || x == w - 1 || y == h - 1;
-            wr16(px, (y * w + x) * 2, line ? rgb565(200, 200, 210)
-                                           : rgb565(frame_ground[0], frame_ground[1], frame_ground[2]));
+            uint8_t *d = rgba + (y * w + x) * 4;
+            int edge = x < line || y < line || x >= w - line || y >= h - line;
+            d[0] = edge ? 200 : frame_ground[0];
+            d[1] = edge ? 200 : frame_ground[1];
+            d[2] = edge ? 210 : frame_ground[2];
+            d[3] = 255;
         }
-    if (w <= 2 || h <= 2) return;
-    uint32_t iw = w - 2, ih = h - 2, cw = (uint32_t)sw, ch = (uint32_t)sh;
+    if (w <= 2 * line || h <= 2 * line) return rgba;
+    uint32_t iw = w - 2 * line, ih = h - 2 * line, cw = (uint32_t)sw, ch = (uint32_t)sh;
     if ((uint64_t)cw * ih > (uint64_t)ch * iw) cw = (uint32_t)((uint64_t)ch * iw / ih);
     else ch = (uint32_t)((uint64_t)cw * ih / iw);
-    if (!cw || !ch) return;
-    uint8_t *rgba = malloc((size_t)iw * ih * 4);
-    if (!rgba) return;
-    scale_rgba(rgba, iw, ih, src, sw, sh, ((uint32_t)sw - cw) / 2, 0, cw, ch);
+    uint8_t *face = cw && ch ? malloc((size_t)iw * ih * 4) : NULL;
+    if (!face) return rgba;
+    scale_rgba(face, iw, ih, src, sw, sh, ((uint32_t)sw - cw) / 2, 0, cw, ch);
     for (uint32_t y = 0; y < ih; y++)
         for (uint32_t x = 0; x < iw; x++) {
-            const uint8_t *s = rgba + (y * iw + x) * 4;
-            uint32_t c[3];
-            for (int k = 0; k < 3; k++) c[k] = (s[k] * s[3] + frame_ground[k] * (255u - s[3])) / 255u;
-            wr16(px, ((1 + y) * w + 1 + x) * 2, rgb565(c[0], c[1], c[2]));
+            const uint8_t *f = face + (y * iw + x) * 4;
+            uint8_t *d = rgba + ((y + line) * w + x + line) * 4;
+            for (int k = 0; k < 3; k++) d[k] = (uint8_t)((f[k] * f[3] + frame_ground[k] * (255u - f[3])) / 255u);
         }
-    free(rgba);
+    free(face);
+    return rgba;
 }
 
-/* Remembers the RGBA pixels of a badge picture for the blit. */
-static void keep_alpha(uint32_t pic, uint32_t pixels, uint32_t w, uint32_t h, uint8_t *rgba)
+/* Remembers a picture made by pictures_load, for the blit. */
+static void keep(uint32_t pic, uint32_t pixels, const Picture *p, uint8_t *rgba)
 {
     static int next;
     int i;
-    for (i = 0; i < ALPHA_MAX && alpha[i].pic; i++) {}
-    if (i == ALPHA_MAX) i = next++ % ALPHA_MAX;
-    free(alpha[i].rgba);
-    alpha[i].pic = pic;
-    alpha[i].pixels = pixels;
-    alpha[i].w = w;
-    alpha[i].h = h;
-    alpha[i].rgba = rgba;
+    for (i = 0; i < OURS_MAX && ours[i].pic; i++) {}
+    if (i == OURS_MAX) i = next++ % OURS_MAX;
+    free(ours[i].rgba);
+    ours[i].pic = pic;
+    ours[i].pixels = pixels;
+    ours[i].w = p->w;
+    ours[i].h = p->h;
+    ours[i].kind = p->kind;
+    snprintf(ours[i].path, sizeof ours[i].path, "%s", p->path);
+    ours[i].rgba = rgba;
 }
 
 int pictures_load(void)
@@ -246,15 +260,15 @@ int pictures_load(void)
     uint32_t a1[2] = {1, 0x30}, a2[2] = {1, size};
     uint32_t pic = rt_callback(CALLOC, 2, a1);
     uint32_t pixels = pic ? rt_callback(CALLOC, 2, a2) : 0;
-    if (pixels) {
-        if (p->kind == PICTURE_FRAME) make_frame(g_mem + pixels, p->w, p->h, src, sw, sh);
-        else {
-            uint8_t *rgba = malloc((size_t)p->w * p->h * 4);
-            if (rgba) {
-                scale_rgba(rgba, p->w, p->h, src, sw, sh, 0, 0, (uint32_t)sw, (uint32_t)sh);
-                keep_alpha(pic, pixels, p->w, p->h, rgba);
-            }
+    uint8_t *rgba = pixels ? make_rgba(p->kind, src, sw, sh, p->w, p->h, 1) : NULL;
+    if (rgba) {
+        for (uint32_t i = 0; i < p->w * p->h; i++)
+            wr16(g_mem + pixels, i * 2, rgb565(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]));
+        if (p->kind == PICTURE_FRAME) {
+            free(rgba);
+            rgba = NULL;
         }
+        keep(pic, pixels, p, rgba);
         const uint32_t head[12] = {p->w, p->h, size, pixels, 32, 64, 0, 16, 0xf800, 0x07e0, 0x001f, 0};
         for (int i = 0; i < 12; i++) wr32(g_mem, pic + 4u * (uint32_t)i, head[i]);
         cpu.eax = pic;
@@ -289,23 +303,27 @@ void o_005e3fd0(void);
 
 RT_WRAP(005e3fd0, picture_blit)
 {
+    int32_t x = (int32_t)rd32(g_mem, cpu.esp + 4), y = (int32_t)rd32(g_mem, cpu.esp + 8);
     uint32_t pic = rd32(g_mem, cpu.esp + 12);
     int i;
-    for (i = 0; i < ALPHA_MAX; i++)
-        if (pic && alpha[i].pic == pic && alpha[i].pixels == rd32(g_mem, pic + 0xc)) break;
-    if (i == ALPHA_MAX) {
+    for (i = 0; i < OURS_MAX; i++)
+        if (pic && ours[i].pic == pic && ours[i].pixels == rd32(g_mem, pic + 0xc)) break;
+    if (i == OURS_MAX) {
         o_005e3fd0();
         return;
     }
-    pictures_blend(alpha[i].rgba, alpha[i].w, alpha[i].h, (int32_t)rd32(g_mem, cpu.esp + 4),
-                   (int32_t)rd32(g_mem, cpu.esp + 8), 0, 0x7fffffff);
-    rt_ret_cdecl(0);
+    if (ours[i].rgba) {
+        pictures_blend(ours[i].rgba, ours[i].w, ours[i].h, x, y, 0, 0x7fffffff);
+        rt_ret_cdecl(0);
+    } else o_005e3fd0();
+    pictures_sharp_add(ours[i].kind, ours[i].path, x, y, ours[i].w, ours[i].h);
 }
 
 #define BADGES_MAX 256
 static struct {
     uint32_t club, h, w;
     char name[64];                  /* the club's name, to see that the record is still that club */
+    char path[PICTURE_PATH];
     uint8_t *rgba;                  /* NULL: no badge file */
 } badges[BADGES_MAX];               /* the small badges of the lists (list_badges.c), for the session */
 
@@ -325,13 +343,14 @@ int pictures_any_badge(void)
     return any;
 }
 
-const uint8_t *pictures_club_badge(uint32_t club, uint32_t h, uint32_t *w)
+const uint8_t *pictures_club_badge(uint32_t club, uint32_t h, uint32_t *w, const char **path)
 {
     static int next;
     const char *club_name = win_str(club + CLUB_NAME);
     for (int i = 0; i < BADGES_MAX; i++)
         if (badges[i].club == club && badges[i].h == h && !strncmp(badges[i].name, club_name, sizeof badges[i].name - 1)) {
             *w = badges[i].w;
+            *path = badges[i].path;
             return badges[i].rgba;
         }
     int i = next++ % BADGES_MAX;
@@ -340,11 +359,12 @@ const uint8_t *pictures_club_badge(uint32_t club, uint32_t h, uint32_t *w)
     badges[i].club = club;
     badges[i].h = h;
     snprintf(badges[i].name, sizeof badges[i].name, "%s", club_name);
-    char name[300], path[PICTURE_PATH];
+    char name[300];
     pictures_club_name(club, name, sizeof name);
-    snprintf(path, sizeof path, "%s/badges/%s.png", win_user_dir, name);
+    snprintf(badges[i].path, sizeof badges[i].path, "%s/badges/%s.png", win_user_dir, name);
+    *path = badges[i].path;
     int sw = 0, sh = 0, comp = 0;
-    uint8_t *src = stbi_load(path, &sw, &sh, &comp, 4);
+    uint8_t *src = stbi_load(badges[i].path, &sw, &sh, &comp, 4);
     if (!src || sw <= 0 || sh <= 0) {
         stbi_image_free(src);
         return NULL;
@@ -364,10 +384,129 @@ void o_005e42b0(void);
 RT_WRAP(005e42b0, picture_free)
 {
     uint32_t pic = rd32(g_mem, cpu.esp + 4);
-    for (int i = 0; pic && i < ALPHA_MAX; i++)
-        if (alpha[i].pic == pic) {
-            free(alpha[i].rgba);
-            memset(&alpha[i], 0, sizeof alpha[i]);
+    for (int i = 0; pic && i < OURS_MAX; i++)
+        if (ours[i].pic == pic) {
+            free(ours[i].rgba);
+            memset(&ours[i], 0, sizeof ours[i]);
         }
     o_005e42b0();
+}
+
+/* Sharp pictures on the window. The game draws at its screen size and the window shows that picture
+ * scaled (user32.c). Each of our pictures that the game draws is also kept here with its place; when the
+ * frame goes to the window, pictures_draw draws it again from its file at the window's own size over the
+ * scaled picture, as long as the screen still shows there what was drawn (a hash of those pixels): a popup
+ * or another screen over it leaves the scaled picture alone. */
+#define SHARP_MAX 96
+static struct {
+    int on;
+    PictureKind kind;
+    char path[PICTURE_PATH];
+    int32_t x, y;
+    uint32_t w, h, hash;
+} sharp[SHARP_MAX];
+
+#define TEXTURES_MAX 64
+static struct {
+    PictureKind kind;
+    char path[PICTURE_PATH];
+    uint32_t w, h;
+    SDL_Texture *texture;
+    uint64_t used;
+} textures[TEXTURES_MAX];
+static uint64_t texture_clock;
+
+/* FNV-1a over the pixels of x, y, w, h of a 565 picture; 0 when the box is not all on it. */
+static uint32_t box_hash(uint32_t px, uint32_t pitch, uint32_t sw, uint32_t sh, int32_t x, int32_t y, uint32_t w,
+                         uint32_t h)
+{
+    if (!px || x < 0 || y < 0 || x + (int32_t)w > (int32_t)sw || y + (int32_t)h > (int32_t)sh) return 0;
+    uint32_t hash = 2166136261u;
+    for (uint32_t r = 0; r < h; r++) {
+        const uint8_t *row = g_mem + px + (uint32_t)(y + (int32_t)r) * pitch + (uint32_t)x * 2;
+        for (uint32_t k = 0; k < w * 2; k++) hash = (hash ^ row[k]) * 16777619u;
+    }
+    return hash | 1;
+}
+
+void pictures_sharp_add(PictureKind kind, const char *path, int32_t x, int32_t y, uint32_t w, uint32_t h)
+{
+    uint32_t surf = rd32(g_mem, DRAW_SURFACE);
+    if (!surf) return;
+    uint32_t hash = box_hash(rd32(g_mem, surf + S_PIXELS), rd32(g_mem, surf + S_PITCH), rd32(g_mem, surf + S_W),
+                             rd32(g_mem, surf + S_H), x, y, w, h);
+    if (!hash) return;
+    static int next;
+    int i, free_i = -1;
+    for (i = 0; i < SHARP_MAX; i++) {
+        if (sharp[i].on && sharp[i].x == x && sharp[i].y == y && sharp[i].w == w && sharp[i].h == h) break;
+        if (!sharp[i].on && free_i < 0) free_i = i;
+    }
+    if (i == SHARP_MAX) i = free_i >= 0 ? free_i : next++ % SHARP_MAX;
+    sharp[i].on = 1;
+    sharp[i].kind = kind;
+    snprintf(sharp[i].path, sizeof sharp[i].path, "%s", path);
+    sharp[i].x = x;
+    sharp[i].y = y;
+    sharp[i].w = w;
+    sharp[i].h = h;
+    sharp[i].hash = hash;
+}
+
+/* The picture of the file at w x h window pixels, as a texture (kept, the least used goes first). */
+static SDL_Texture *texture_of(SDL_Renderer *renderer, PictureKind kind, const char *path, uint32_t w, uint32_t h,
+                               uint32_t line)
+{
+    int i, old = 0;
+    for (i = 0; i < TEXTURES_MAX; i++) {
+        if (textures[i].texture && textures[i].kind == kind && textures[i].w == w && textures[i].h == h &&
+            !strcmp(textures[i].path, path)) {
+            textures[i].used = ++texture_clock;
+            return textures[i].texture;
+        }
+        if (textures[i].used < textures[old].used) old = i;
+    }
+    int sw = 0, sh = 0, comp = 0;
+    uint8_t *src = stbi_load(path, &sw, &sh, &comp, 4);
+    uint8_t *rgba = src ? make_rgba(kind, src, sw, sh, w, h, line) : NULL;
+    stbi_image_free(src);
+    if (!rgba) return NULL;
+    SDL_Texture *t = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, (int)w, (int)h);
+    if (t) {
+        SDL_UpdateTexture(t, NULL, rgba, (int)w * 4);
+        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(t, SDL_ScaleModeLinear);
+    }
+    free(rgba);
+    if (!t) return NULL;
+    if (textures[old].texture) SDL_DestroyTexture(textures[old].texture);
+    textures[old].kind = kind;
+    snprintf(textures[old].path, sizeof textures[old].path, "%s", path);
+    textures[old].w = w;
+    textures[old].h = h;
+    textures[old].texture = t;
+    textures[old].used = ++texture_clock;
+    return t;
+}
+
+void pictures_draw(SDL_Renderer *renderer)
+{
+    float scale_x = 1, scale_y = 1;
+    SDL_RenderGetScale(renderer, &scale_x, &scale_y);
+    if (scale_x <= 1.01f && scale_y <= 1.01f) return;      /* the window is no larger than the screen */
+    uint32_t px = win_primary_pixels();
+    for (int i = 0; i < SHARP_MAX; i++) {
+        if (!sharp[i].on) continue;
+        if (box_hash(px, rt_screen_w * 2, rt_screen_w, rt_screen_h, sharp[i].x, sharp[i].y, sharp[i].w, sharp[i].h) !=
+            sharp[i].hash) {
+            sharp[i].on = 0;
+            continue;
+        }
+        uint32_t w = (uint32_t)(sharp[i].w * scale_x + 0.5f), h = (uint32_t)(sharp[i].h * scale_y + 0.5f);
+        uint32_t line = (uint32_t)(scale_x + 0.5f);
+        SDL_Texture *t = texture_of(renderer, sharp[i].kind, sharp[i].path, w, h, line ? line : 1);
+        if (!t) continue;
+        SDL_FRect r = {(float)sharp[i].x, (float)sharp[i].y, (float)sharp[i].w, (float)sharp[i].h};
+        SDL_RenderCopyF(renderer, t, NULL, &r);
+    }
 }

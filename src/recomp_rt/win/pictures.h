@@ -43,7 +43,10 @@ int pictures_any_badge(void);
 
 /* The badge of a club, h screen pixels high, as RGBA pixels (kept for the session), or NULL when the club
  * has no badge file; its width in *w. */
-const uint8_t *pictures_club_badge(uint32_t club, uint32_t h, uint32_t *w);
+const uint8_t *pictures_club_badge(uint32_t club, uint32_t h, uint32_t *w, const char **path);
+
+/* A picture of ours just drawn at x, y (screen pixels): drawn again sharp on the window (pictures_draw). */
+void pictures_sharp_add(PictureKind kind, const char *path, int32_t x, int32_t y, uint32_t w, uint32_t h);
 
 /* Mixes w x h RGBA pixels onto the draw surface at (x, y), inside the clip y1..y2. */
 void pictures_blend(const uint8_t *rgba, uint32_t w, uint32_t h, int32_t x, int32_t y, int32_t clip_y1, int32_t clip_y2);

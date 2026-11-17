@@ -10,6 +10,7 @@ Upstream lists club badges and faces as "not planned" (`2026-11-12-features-0.8.
 - **Badge on the staff profile**: the badge of the person's club just before the name, in place of the club's name in brackets. A click on it opens the club, as the name did.
 - **Badge on the club screen**: just before the club's name in the heading, and large in the General Info view of the Finances & Info tab.
 - **Badges in lists and tables** (league tables, fixtures, results and every other list with club names): a small badge at the left of each club's name. Every name gets the badge's box, so the names stay in line when a club has no badge.
+- **Sharp pictures**: when the window is larger than the game's screen, faces and badges are drawn again from their files at the window's own size, so they stay sharp.
 - Without the files, or with the options off, every screen is the original's, byte for byte.
 
 ## Files
@@ -42,6 +43,7 @@ Code: `src/recomp_rt/win/pictures.c` (files, PNG, drawing), `heading_pictures.c`
 - Club screen, `club_screen_build` `0x454900`: the club is slot 0. The heading is one widget of `ScreenManager::add_screen_title` `0x803f30` (the bar and its centred text, font 7), so the text gets spaces in front as wide as the badge and its gap; the badge item lies outside any area, as the heading does, so that it draws after it.
 - Info tab: `club_screen_draw_info_tab` `0x460590` asks `0x460450` (cdecl (club, out); the Spanish badge table at `0x98dedc`, 40 clubs, `.BDG` files that the free release does not ship) and adds an area at x 638..780 with the picture (`0x460c49`). The wrap of `0x460450` answers for every club with a badge file, and the area gets the badge's box.
 - Lists: a club name in a list is a link widget, action `0x7d5`, the club as data (`2026-10-14-clickable-names-inventory.md`). `Guio::draw` `0x5ee590` (thiscall (refresh) ret 4) draws a widget; its fields (`Guio::get_fields` `0x5ee4a0`): the rectangle `+0x10..+0x1c`, the action `+0x08`, the data `+0x48`, the text `+0x80`. Before the draw the widget is narrowed from the left by the box and the gap; after it the rectangle is put back and the badge mixed onto the draw surface. Link widgets with no text (the links over a text of `comp_text`, as in the news) are left as they are. The small badges are kept for the session in host memory.
+- Sharp pictures: each of our pictures that the game draws (the blit wrap, `list_badges.c`) is kept with its place and a hash of the screen pixels there. When the frame goes to the window (`user32.c`, `draw_frame`), `pictures_draw` draws each one again from its file at the window's scale (`SDL_RenderGetScale`: the logical size, or the work texture of `sharp_picture`) over the scaled picture, as long as the screen still shows there what was drawn; a popup or another screen over it leaves the scaled picture alone. The textures are kept, the least used dropped first. Screen dumps show the game's own pixels; window shots show the sharp pictures.
 - The original's person picture order (`0x41c790`), kept as it is: the person's own picture, his club's (`0x41cad0`), his nation's (`0x41c9d0`), the default (`0x41ced0`), a random one (`0x41bfb0`).
 
 ## Tests
@@ -49,5 +51,6 @@ Code: `src/recomp_rt/win/pictures.c` (files, PNG, drawing), `heading_pictures.c`
 - Classic and widescreen screenshots of the staff profile (Profile and Contract tabs), the club screen and its General Info view, the league table and the fixtures, with test files (one club without a badge).
 - Without files, these screens equal the original's byte for byte.
 - A click on the profile's badge opens the club screen.
+- Window shots at twice the screen size: the badges and the face drawn sharp; a menu over the heading badge hides it.
 - Same save: the same steps (screens with pictures, then 3 days on holiday) with the options on and off give the same save, except heap addresses that the original writes into the parts of `smoke_run.LAYOUT_PARTS` (the heading pictures use the game's memory).
 - `tests/options` knows both options. `tests/fixtures/fixtures.py`: `FIXTURES_USER_FILES` copies a folder (for example `faces/`, `badges/`) into the user folder of a play.

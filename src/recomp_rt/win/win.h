@@ -246,6 +246,7 @@ struct SDL_Surface;
 int win_cursor_shape(uint32_t handle);          /* an SDL_SystemCursor for a cursor handle of the game */
 void names_after_poll(void);                    /* after each input poll: the name under the mouse */
 void names_draw(struct SDL_Renderer *renderer); /* the line under it, on the shown frame */
+void pictures_draw(struct SDL_Renderer *renderer); /* faces and badges sharp on the shown frame (pictures.c) */
 void names_draw_surface(struct SDL_Surface *s); /* the same line on a screen dump */
 /* The SDL window, renderer and picture texture of user32.c, NULL before the window opens. */
 struct SDL_Window;
