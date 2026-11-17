@@ -1,8 +1,8 @@
 # Editor for every system, and new playable nations (fork NuWiSan)
 
-Status: Research, 2026-11-17. Fork `NuWiSan/cm0102-bosman-edition`, branch `estudo/emblemas-fotos-editor`. Not built yet: the build needs `CM0102.iso` and `cm0102_3968.exe`.
+Status: research. Fork `NuWiSan/cm0102-bosman-edition`.
 
-Two wishes of Nuno that depend on each other: a database editor that runs on Linux, Mac and Windows, and new nations in the League table, Switzerland first. Upstream keeps "competition structure changes of any kind" out of 0.8.0, so both are fork work.
+Two features that depend on each other: a database editor that runs on Linux, Mac and Windows, and new nations in the League table, Switzerland first. Upstream keeps "competition structure changes of any kind" out of 0.8.0, so both are fork work.
 
 ## Problem
 
@@ -25,9 +25,10 @@ So a new nation needs: a new League table entry, league and cup objects for it, 
 A separate program that opens a database folder, shows and edits clubs, people, nations, competitions and contracts, and saves a new folder. The game already plays such a folder through the Custom database tile (0.6.0, Q254): an edited database is a Custom database (Q271).
 
 - Base: `tools/seasons/own_db/cmdb.py` and `cmdb1.py` already read every table of `index.dat` and write a folder (`cmdb1.write_folder`). Row sizes, offsets and fields are in `docs/research/data-map/`.
-- Form: a small local web app (Python server and a page in the browser), as Nuno's Helvetia editor is. It runs the same on Linux, Mac and Windows with only Python. The look: the original Windows editor's layout, cleaner, with the game's colours.
-- Pictures (Nuno, 2026-11-17): the editor shows the pictures of every nation, club, competition, stadium and person: the background pictures of `pics.cfg` (sections nations, clubs, stadiums, comps, staff and the rest) and the fork's badges and faces. It says whether each picture is in the right folder with the right name, so that the game finds it. It can take any picture file and give it the right name for the record's id (badges, faces) or the right `pics.cfg` line (backgrounds), with a preview.
-- Power (Nuno, 2026-11-17): it edits every field the original editor edits, and more, with search, filters, lists of many records at once and checks of the links.
+- Form: a small local web app (Python server and a page in the browser). It runs the same on Linux, Mac and Windows with only Python.
+- Look: retro, in the style of CM 01/02 and of its editor (`Editor/cm0102ed.exe` of the free release is the reference of the layout), cleaner.
+- Pictures: the editor shows the pictures of every nation, club, competition, stadium and person: the background pictures of `pics.cfg` (sections nations, clubs, stadiums, comps, staff and the rest) and the fork's badges and faces. It says whether each picture is in the right folder with the right name, so that the game finds it. It takes PNG, SVG and WebP, shows a preview, and saves PNG with the right name for the record (badges, faces: see `2026-11-17-badges-and-faces-spec.md`) or the right `pics.cfg` line (backgrounds). It flags an SVG or WebP put in a picture folder by hand, which the game does not read, and offers to convert it.
+- Power: it edits every field the original editor edits, and more, with search, filters, lists of many records at once and checks of the links.
 - It never writes into the folder it opened: it saves a copy. It checks every table length and link before it saves, as `cmdb.table` does.
 
 ### B. Custom league in the game (the key piece)
@@ -44,7 +45,7 @@ One generic league object, configured by a file in the database folder, in place
 - Super League: 12 clubs, 33 rounds, then a split into two groups of 6 for 5 more rounds (format since 2023/24, to confirm against the league's regulations). The Scottish Premier Division of the original also has 12 clubs and a split, so its classes are the first candidate to read as the base of B.
 - Challenge League: 10 clubs, 4 meetings. The relegation play-off between the Super League's 11th and the Challenge League's 2nd. Direct promotion of the Challenge League's 1st and relegation of its 10th.
 - Swiss Cup. Promotion League and lower tiers later, as background leagues first.
-- Data: the Update Team databases hold Swiss clubs and players. Nuno's Helvetia Football data is a source for the Swiss divisions, through the editor.
+- Data: the Update Team databases hold Swiss clubs and players. The Helvetia Football data is a source for the Swiss divisions, through the editor.
 
 ## User stories
 
@@ -54,7 +55,7 @@ One generic league object, configured by a file in the database folder, in place
 4. As a player, I want to add another nation with only a file and the editor.
 5. As a player who does not choose a custom nation, I want the game to play as before, byte for byte.
 
-## Decisions (proposed, for Nuno)
+## Proposals (not decided yet)
 
 1. Order: A first (no game risk, useful at once), then B with Switzerland as its test (C).
 2. The editor is a local web app in `tools/editor/`. An editor inside the game is not planned: the game's screens are 800x600 with the original's widgets, and every screen would be new code.
@@ -66,7 +67,6 @@ One generic league object, configured by a file in the database folder, in place
 - Q1: Which original class is the best base for B: Scotland (split) or another? (read the code)
 - Q2: Can the League table grow past 35 without moving other tables in memory? (read `FUN_00667150` and its users)
 - Q3: How do the European cups give places to a nation that the original's UEFA table does not hold? Proposed first step: a custom nation gets no European places; later from the coefficients file.
-- Q4 (Nuno, 2026-11-17): retro, in the style of CM 01/02 and its editor, not the Helvetia style: the two projects stay apart. The editor must do more than the original's (`Editor/cm0102ed.exe` of the free release, kept as the reference of the layout). Ideas from Helvetia may come in later where they help.
 
 ## Testing
 
