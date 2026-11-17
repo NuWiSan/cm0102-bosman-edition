@@ -1,6 +1,6 @@
 # Editor for every system, and new playable nations (fork NuWiSan)
 
-Status: editor slices 1, 2 and 2b done (`tools/editor/`); the rest is research. Fork `NuWiSan/cm0102-bosman-edition`.
+Status: editor slices 1, 2, 2b and 2c done (`tools/editor/`); the rest is research. Fork `NuWiSan/cm0102-bosman-edition`.
 
 Two features that depend on each other: a database editor that runs on Linux, Mac and Windows, and new nations in the League table, Switzerland first. Upstream keeps "competition structure changes of any kind" out of 0.8.0, so both are fork work.
 
@@ -133,6 +133,15 @@ How the game reads them (`tools/editor/backgrounds.py`; port `src/cm3/background
 - The game reads a file of the user folder before the game folder's (`src/recomp_rt/win/files.c`), so `pics.cfg` and the new pictures go to `<user folder>/Pictures`; the game folder does not change. `pics.cfg` belongs to every data set: a record renamed in a data set keeps the old key there, which the Pictures page then lists.
 
 Checked: a picture added to Arsenal on its page shows behind Arsenal's club screen in a new game (Background Changes on).
+
+### 2c. Editor: new records
+Done. New copy, on the page of a club, person, stadium, city, official or name, makes a new record with the values of that one and opens it. The new row goes after the table's rows, with the next id, and Save as writes each table followed by its new rows and `index.dat` with the new counts and offsets (the tables of `staff.dat` move with the rows before them). The game takes the counts and offsets from `index.dat`.
+- A person gets new player and non-player rows (copies) when the original has them, no club, no national team and job 0; the clubs' lists follow when the club and job are set.
+- A club gets no people and no division, last division or reserve division. The ids equal the rows, and the national teams follow the clubs in the same id range, so a new club takes the first national team's id and the national teams move up by one, with every link to them: the club links of the load's id pass (club rivals, person club and national team, favourite and disliked clubs, career, comp history).
+- A new name (first, second or common) is the way to give a person a name that the tables lack.
+- Not supported: new nations and competitions (they need the custom league work, slices 3 to 6), and deleting records (other records link to the ids).
+
+Checked: a new club in Switzerland and two new copies of Thierry Henry, one with a new second name "Henrytest" in Arsenal's squad; a new game loads the data set, and Arsenal's squad shows "Henrytest, T".
 
 ### 3. Read the original for B (Q1, Q2)
 Blocked by: the build files.

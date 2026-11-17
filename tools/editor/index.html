@@ -189,6 +189,7 @@ function fieldInput(f, prefix = "") {
 const OPENS = {club: "club", person: "person", nation: "nation", comp: "comp", staff_comp: "staff_comp", stadium: "stadium",
                city: "city", continent: "continent", colour: "colour", first: "first", second: "second", common: "common"};
 let colours = [];
+const COPIES = ["club", "person", "stadium", "city", "official", "first", "second", "common"];
 
 /* The value of an input as the server takes it, or undefined for a link whose text is not a picked record. */
 function inputValue(el) {
@@ -251,6 +252,7 @@ async function showRecord(kind, id) {
   main.innerHTML = `<div class="heading">${pic && pic.has && pic.kind === "badge" ? `<img src="${pictureUrl("badge", pic.name)}">` : ""}${
       rec.rgb ? `<span class="swatch big" style="background:${rec.rgb}"></span>` : ""}${esc(rec.name)}</div>
     <div class="bar"><button class="btn" id="back">Back</button><button class="btn" id="apply">Apply changes</button>
+      ${COPIES.includes(kind) ? `<button class="btn" id="copy" title="A new record with this one's values">New copy</button>` : ""}
       <span class="note" id="emsg"></span></div>
     <div class="record">${rec.sections.slice(0, 1).map(panel).join("")}${pic ? picturePanel(pic.kind, pic.name, pic.has) : ""}
       ${rec.backgrounds ? backgroundPanel(rec.backgrounds, kind) : ""}${rec.sections.slice(1).map(panel).join("")}${staff}${hist}</div>
@@ -260,6 +262,14 @@ async function showRecord(kind, id) {
     if (first) first.insertAdjacentHTML("afterend", `<p class="note">${esc(rec.locked[0].toUpperCase() + rec.locked.slice(1))}.</p>`);
   }
   document.getElementById("back").onclick = () => history.back();
+  const copy = document.getElementById("copy");
+  if (copy) copy.onclick = async () => {
+    const r = await fetch(`/api/new/${kind}/${id}`, {method: "POST"});
+    const res = await r.json();
+    if (!r.ok) { document.getElementById("emsg").textContent = res.error; return; }
+    location.hash = `${kind}/${res.id}`;
+    refreshSaveBar();
+  };
   if (pic) wirePicture(pic.kind, pic.name);
   if (rec.backgrounds) wireBackgrounds(kind, id);
   wireInputs(main);

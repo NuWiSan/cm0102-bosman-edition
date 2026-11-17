@@ -109,7 +109,12 @@ class Data:
         return {self.face_name(i) for i in self.model.rows["person"]}
 
     def save(self, folder):
-        cmdb1.write_folder(self.folder, folder, {f: len(b) for f, b in self.folder.raw.items()})
+        def write(files, path):
+            os.makedirs(path)
+            for name, b in sorted(files.items()):
+                with open(os.path.join(path, name), "wb") as f:
+                    f.write(b)
+        self.model.write(folder, write)
         self.model.changed.clear()
 
 class Pictures:
@@ -297,6 +302,9 @@ def make_handler(data, pictures):
                 return self.rename(q)
             if parts[:2] == ["api", "bg"] and bg.user:
                 return self.bg_post(parts[2] if len(parts) > 2 else "", q)
+            if parts[:2] == ["api", "new"] and len(parts) == 4:
+                i, err = model.add(parts[2], int(parts[3]) if parts[3].isdigit() else -1)
+                return self.send(400, dict(error=err)) if err else self.send(200, dict(id=i))
             if parts[:2] in (["api", "rec"], ["api", "history"]) and len(parts) == 4:
                 i = int(parts[3]) if parts[3].lstrip("-").isdigit() else -1
                 try:

@@ -139,7 +139,8 @@ class Table:
 CLUB = Table("club", "Clubs", (0, 1), 581, [
     ("Club", [F("name", "Name", 4, "text", size=51, lock="club"), F("short", "Short name", 0x38, "text", size=26),
               F("nation", "Nation", 0x53, "ref", ref="nation"),
-              F("division", "Division", 0x57, "ref", ref="comp"),
+              F("division", "Division", 0x57, "ref", ref="comp",
+                note="A league takes its clubs by this (0x56ecb0): one club more makes that league one club larger."),
               F("last_division", "Last division", 0x5B, "ref", ref="comp"),
               F("last_position", "Last position", 0x5F, hi=30),
               F("reserve_division", "Reserve division", 0x60, "ref", ref="comp"),
@@ -301,7 +302,7 @@ def person_sections(fmt):
                     F("year", "Year of birth (no date)", 0x18, fmt="<H"),
                     F("nation", "Nation", 0x1A, "ref", ref="nation"),
                     F("nation2", "Second nation", 0x1E, "ref", ref="nation")]),
-        ("Contract", [F("club", "Club", 0x39, "ref", ref="club"), F("job", "Job", 0x3D, "enum", choices=JOBS),
+        ("Contract", [F("club", "Club", 0x39, "ref", ref="club", none=NONE1), F("job", "Job", 0x3D, "enum", choices=JOBS),
                       F("joined", "Joined", 0x3E, "date"), F("expires", "Expires", 0x46, "date"),
                       F("wage", "Wage (£ a week)", 0x4E, fmt="<i", lo=0),
                       F("value", "Value (£)", 0x52, fmt="<i", lo=0)]),
@@ -374,6 +375,7 @@ class Model:
             self.rows[t.key] = {struct.unpack_from("<i", r, idx)[0]: r for tid in t.tids for r in folder.rows(tid)}
         self.links = {"player": (folder.rows(10), 0x91 if fmt == 1 else 0x61),
                       "np": (folder.rows(9), 0x99 if fmt == 1 else 0x69)}
+        self.added = {}                    # table id: the rows added after the file's rows (Model.add)
         self.history_rows = {k: [r for tid in h[1] for r in folder.rows(tid)] for k, h in HISTORIES.items()}
         self.history_index = {}
         self.changed = set()
@@ -636,3 +638,119 @@ class Model:
                 return f"the club has no free place in its {title.lower()} list ({n})" if n > 1 else f"the club already has a {title.lower()}"
             struct.pack_into("<i", r, o + 4 * slots[0], pid)
         return None
+
+
+    # ---- new records (beyond the original editor)
+
+    def count(self, tid):
+        return self.folder.idx[tid]["count"] + len(self.added.get(tid, []))
+
+    def append(self, tid, row):
+        self.added.setdefault(tid, []).append(row)
+        return row
+
+    def add(self, kind, template):
+        """A new record, a copy of the record template with the next id. Returns (id, None) or (None, error).
+        The ids equal the rows, so a new club takes the first national team's id and the national teams move up
+        by one, with every link to them (the club links of the load's id pass: club rivals, person club and
+        national team, likes, career and comp history)."""
+        t = self.tables.get(kind)
+        if t is None or not self.exists(kind, template):
+            return None, "no such record"
+        if kind not in ("club", "person", "stadium", "city", "official", "first", "second", "common"):
+            return None, "new records of this table are not supported"
+        src = self.rows[kind][template]
+        if kind == "club" and template >= self.folder.idx[0]["count"] + len(self.added.get(0, [])):
+            return None, "a new national team needs a new nation"
+        row = bytearray(src)
+        if kind == "club":
+            i = self.count(0)
+            self.shift_national_teams(i)
+            struct.pack_into("<i", row, 0, i)
+            for _, o, n in CLUB_STAFF:                      # a new club has no people yet
+                struct.pack_into(f"<{n}i", row, o, *([NONE1] * n))
+            for o in (0x57, 0x5B, 0x60):                     # and plays in no division: a league takes its clubs
+                struct.pack_into("<i", row, o, NONE)          # by the division (0x56ecb0)
+            self.append(0, row)
+        elif kind == "person":
+            i = self.count(6)
+            struct.pack_into("<i", row, 0, i)
+            struct.pack_into("<i", row, 0x39, NONE1)
+            struct.pack_into("<i", row, 0x24, NONE)
+            row[0x3D] = 0
+            row[0x28] = 0
+            for role, tid in (("player", 10), ("np", 9)):
+                r = self.row(kind, template, role)
+                off = self.links[role][1]
+                if r is None:
+                    struct.pack_into("<i", row, off, NONE1)
+                    continue
+                j = self.count(tid)
+                link = bytearray(r)
+                struct.pack_into("<i", link, 0, j)
+                self.links[role][0].append(self.append(tid, link))
+                struct.pack_into("<i", row, off, j)
+            self.append(6, row)
+        else:
+            tid = t.tids[0]
+            i = self.count(tid)
+            struct.pack_into("<i", row, 0x33 if kind in ("first", "second", "common") else 0, i)
+            self.append(tid, row)
+        self.rows[kind][i] = row
+        if kind not in ("person", "first", "second", "common"):
+            name = next(f for f in t.fields() if f.key == "name")
+            text = (name.read(row) + " (new)")[:name.size - 1]
+            row[name.off:name.off + name.size] = text.encode("latin-1") + bytes(name.size - len(text))
+        self.changed.add((kind, i))
+        self.names.clear()
+        return i, None
+
+    def shift_national_teams(self, first):
+        """The national teams (ids from first) move up by one id, and every club link to them."""
+        clubs = self.rows["club"]
+        moved = {i: r for i, r in clubs.items() if i >= first}
+        for i in sorted(moved, reverse=True):
+            del clubs[i]
+        for i, r in moved.items():
+            struct.pack_into("<i", r, 0, i + 1)
+            clubs[i + 1] = r
+        fix = lambda r, o: struct.pack_into("<i", r, o, struct.unpack_from("<i", r, o)[0] + 1) \
+            if struct.unpack_from("<i", r, o)[0] >= first else None  # noqa: E731
+        for kind, t in self.tables.items():
+            for f in t.fields():
+                if f.ref == "club" and f.row == "main":
+                    for r in self.rows[kind].values():
+                        fix(r, f.off)
+        for kind, (_, _, _, _, fields) in HISTORIES.items():
+            for f in fields:
+                if f.ref == "club":
+                    for r in self.history_rows[kind]:
+                        fix(r, f.off)
+        self.history_index.clear()
+
+    def write(self, path, write_folder):
+        """Writes the data set into the new folder path: the files, each table followed by its added rows, and
+        index.dat with the new counts and offsets."""
+        F = self.folder
+        files = {}
+        idx = bytearray(F.raw["index.dat"])
+        for name, b in F.raw.items():
+            if name == "index.dat":
+                continue
+            tables = sorted((e["off"], tid) for tid, e in F.idx.items() if e["file"] == name)
+            out, at = bytearray(), 0
+            for off, tid in tables:
+                e = F.idx[tid]
+                size = len(F.rows(tid)[0]) if e["count"] else (157 if tid == 6 and self.format == 1 else 0)
+                end = off + e["count"] * size if e["count"] else off
+                out += b[at:off]
+                struct.pack_into("<i", idx, e["pos"] + 0x3B, len(out))
+                out += b[off:end]
+                for r in self.added.get(tid, []):
+                    out += r
+                struct.pack_into("<i", idx, e["pos"] + 0x37, e["count"] + len(self.added.get(tid, [])))
+                at = end
+            out += b[at:]
+            files[name] = out
+        files["index.dat"] = idx
+        write_folder(files, path)
