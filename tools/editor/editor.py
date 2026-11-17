@@ -15,8 +15,8 @@ game looks for, a picture (PNG, made by the page from PNG, SVG, WebP or JPEG) sa
 Pictures page it converts the picture files that are not PNG and renames the PNG files whose name matches no
 record. It never deletes a file.
 
-It edits people: names, birth date, nations, club, and for a player the abilities, reputations, positions and
-attributes, as the data stores them. The changes stay in memory until Save, which writes the whole data set into
+It edits people: names, birth date, nations, the club contract (club, job, joined, expires, wage, value), the
+national team, and for a player the abilities, reputations, positions and attributes, as the data stores them. The changes stay in memory until Save, which writes the whole data set into
 a new folder <user folder>/Databases/<name>, which the game plays as a custom database. The opened data folder
 is never written.
 """
@@ -43,6 +43,12 @@ NAME_TABLES = {"first": 13, "second": 14, "common": 15}
 # The staff row (format 1, 157 bytes, and format 2, 110 bytes: the same offsets up to 0x60).
 S_NAMES = {"first": 4, "second": 8, "common": 0xC}
 S_BORN, S_NATION, S_NATION2, S_CLUB, S_DET = 0x10, 0x1A, 0x1E, 0x39, 0x58
+S_CAPS, S_GOALS, S_NAT_CLUB, S_NAT_JOB = 0x22, 0x23, 0x24, 0x28     # international: caps, goals, team, job
+S_JOB, S_JOINED, S_EXPIRES, S_WAGE, S_VALUE = 0x3D, 0x3E, 0x46, 0x4E, 0x52   # the club contract; wage a week, value
+# The jobs, from database_get_job_name 0x53ad00 (jump table 0x53b384); 14 has no name there.
+JOBS = ["Unemployed", "Chairman", "Managing Director", "General Manager", "Director Of Football", "Manager",
+        "Assistant Manager", "Reserve Team Manager", "Coach", "Scout", "Physio", "Player", "Player/Manager",
+        "Player/Assistant Manager", "(job 14)", "Player/Coach", "Retired Player", "Media Pundit"]
 S_PLAYER = {1: 0x91, 2: 0x61}           # the row in the player table (10), by staff format; -1 for none
 
 # The player row (table 10, 70 bytes): as the game reads it (staff_compute_player_attribute 0x543540 and its
@@ -125,6 +131,12 @@ class Data:
         for k in ("nation", "nation2"):
             v[k + "_name"] = self.nations.get(v[k], {}).get("name", "")
         v["club_name"] = self.clubs.get(v["club"], {}).get("name", "")
+        date = lambda o: (lambda d: d.isoformat() if d else "")(cmdb1.to_date(*struct.unpack_from("<hH", s, o)))  # noqa: E731
+        v["contract"] = dict(job=s[S_JOB], joined=date(S_JOINED), expires=date(S_EXPIRES), wage=i32(s, S_WAGE),
+                             value=i32(s, S_VALUE))
+        v["international"] = dict(team=i32(s, S_NAT_CLUB), job=s[S_NAT_JOB], caps=s[S_CAPS], goals=s[S_GOALS])
+        v["international"]["team_name"] = self.clubs.get(v["international"]["team"], {}).get("name", "")
+        v["jobs"] = JOBS
         if p is not None:
             v["player"] = dict(
                 ca=struct.unpack_from("<h", p, P_CA)[0], pa=struct.unpack_from("<h", p, P_PA)[0],
@@ -161,6 +173,36 @@ class Data:
             if i != -1 and i not in self.clubs:
                 return f"no club {i}"
             put(s, "<i", S_CLUB, i)
+        c = ch.get("contract", {})
+        if "job" in c:
+            if not 0 <= int(c["job"]) < len(JOBS):
+                return "no such job"
+            s[S_JOB] = int(c["job"])
+        for k, o in (("joined", S_JOINED), ("expires", S_EXPIRES)):
+            if k in c:
+                day, year = cmdb1.from_date(datetime.date.fromisoformat(c[k]) if c[k] else None)
+                put(s, "<h", o, day)
+                put(s, "<H", o + 2, year)
+        for k, o in (("wage", S_WAGE), ("value", S_VALUE)):
+            if k in c:
+                if not 0 <= int(c[k]) <= 2 ** 31 - 1:
+                    return f"{k} must be 0 or more"
+                put(s, "<i", o, int(c[k]))
+        n = ch.get("international", {})
+        if "team" in n:
+            i = int(n["team"])
+            if i != -1 and i not in self.clubs:
+                return f"no team {i}"
+            put(s, "<i", S_NAT_CLUB, i)
+        if "job" in n:
+            if not 0 <= int(n["job"]) < len(JOBS):
+                return "no such job"
+            s[S_NAT_JOB] = int(n["job"])
+        for k, o in (("caps", S_CAPS), ("goals", S_GOALS)):
+            if k in n:
+                if not 0 <= int(n[k]) <= 255:
+                    return f"{k} must be 0 to 255"
+                s[o] = int(n[k])
         pl = ch.get("player")
         if pl and p is not None:
             for k, o in (("ca", P_CA), ("pa", P_PA)):

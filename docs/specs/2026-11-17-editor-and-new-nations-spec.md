@@ -82,8 +82,11 @@ Done. A person's page edits the first, second and common name (picked from the n
 
 The player data, as the game reads it (`staff_compute_player_attribute` `0x543540`, jump table `0x543a94`; names `database_get_player_attribute_name` `0x5428a0`, table `0x543158`): current ability i16 at 5, potential at 7, three reputations i16 from 9, position ratings 0x0f to 0x1a (goalkeeper, sweeper, defender, defensive midfielder, midfielder, attacking midfielder, attacker, wing back, right, left, centre, free role), and the attributes 1 to 31: Acceleration 0x1b, Aggression 0x1c, Agility 0x1d, Anticipation 0x1e, Balance 0x1f, Bravery 0x20, Creativity 0x43, Crossing 0x23, Decisions 0x24, Determination (staff row 0x58), Dribbling 0x26, Finishing 0x27, Flair 0x28, Handling 0x2a, Heading 0x2b, Influence 0x2f, Jumping 0x2e, Long Shots 0x31, Marking 0x32, Off The Ball 0x33, Pace 0x36, Passing 0x37, Positioning 0x39, Reflexes 0x3a, Set Pieces 0x29, Stamina 0x3c, Strength 0x3d, Tackling 0x3e, Teamwork 0x3f, Technique 0x40, Work Rate 0x44. The data stores them as 1 to 20. A new game turns some into values relative to the current ability, and the game shows those from the current ability again (`0x543689`: v = (2 * raw + CA) / 20 + 10, shown (v + v * v / 10) / 3 + 0.5, from 1 to 20; a tenth of the CA for some goalkeeper cases), so its numbers can differ from the data's, as with the original editor. Not named yet: 0x21, 0x22, 0x25, 0x2c, 0x2d, 0x30, 0x34, 0x35, 0x38, 0x3b, 0x41, 0x42, 0x45.
 
-### 2b. Editor: contracts, then clubs
-Blocked by: 2a. The fields to find in the code first.
+### 2b. Editor: contracts and national team
+Done. The club contract and the national team of a person, in the staff row (format 1 and 2): international caps 0x22 and goals 0x23 (bytes), national team 0x24 (a club id of `nat_club.dat`), national job 0x28, club 0x39, club job 0x3d, joined 0x3e and expires 0x46 (dates), wage 0x4e (i32, pounds a week) and value 0x52 (i32, pounds). The jobs 0 to 17 are those of `database_get_job_name` `0x53ad00` (jump table `0x53b384`): Unemployed, Chairman, Managing Director, General Manager, Director Of Football, Manager, Assistant Manager, Reserve Team Manager, Coach, Scout, Physio, Player, Player/Manager, Player/Assistant Manager, (14: no name), Player/Coach, Retired Player, Media Pundit. Bonuses, clauses and squad status are not in the data: the game makes them when a game starts. Checked: Thierry Henry's wage set to 25,000, expires to 30.6.2006 and caps to 40; a new game on that data set shows the three on the Contract tab.
+
+### 2c. Editor: clubs
+Blocked by: 2b. The fields to find in the code first.
 ### 3. Read the original for B (Q1, Q2)
 Blocked by: the build files.
 ### 4. Custom league with one division

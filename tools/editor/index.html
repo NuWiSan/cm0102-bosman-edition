@@ -59,6 +59,7 @@
   .warn { color: #ff8060; }
   .pager { display: flex; gap: 6px; align-items: center; color: var(--grey); }
   .form td { padding: 2px 6px; }
+  .form select { width: 100%; background: #d8d8d8; border: 1px solid #000; padding: 3px 6px; font: inherit; }
   .form input { width: 100%; background: #d8d8d8; border: 1px solid #000; padding: 3px 6px; font: inherit; }
   .num { width: 54px !important; text-align: right; }
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 14px; }
@@ -215,6 +216,10 @@ async function showClub(id) {
   wirePicture("badge", c.picture);
 }
 
+function jobSelect(key, value, jobs) {
+  return `<select data-key="${key}">${jobs.map((j, i) => `<option value="${i}"${i === value ? " selected" : ""}>${esc(j)}</option>`).join("")}</select>`;
+}
+
 async function showPerson(id) {
   setSide("people");
   const [p, e] = await Promise.all([api(`/api/person/${id}`), api(`/api/edit/${id}`)]);
@@ -233,12 +238,24 @@ async function showPerson(id) {
       <tr><td>Born</td><td>${input("born", e.born, "", 'type="date"')}</td></tr>
       <tr><td>Nation</td><td>${input("nation", e.nation_name, "", 'list="dl-nation" data-pick="nation"')}</td></tr>
       <tr><td>Second nation</td><td>${input("nation2", e.nation2_name, "", 'list="dl-nation" data-pick="nation"')}</td></tr>
-      <tr><td>Club</td><td>${input("club", e.club_name, "", 'list="dl-club" data-pick="club"')}</td></tr>
       <tr><td>Id</td><td class="v">${p.id}</td></tr></table>
       <datalist id="dl-first"></datalist><datalist id="dl-second"></datalist><datalist id="dl-common"></datalist>
       <datalist id="dl-nation"></datalist><datalist id="dl-club"></datalist>
       <p class="note">Names come from the data's name tables: pick one from the list.</p></div>
     ${picturePanel("face", p.picture, p.has_picture)}
+    <div class="panel"><h3>Contract</h3><table class="form">
+      <tr><td>Club</td><td>${input("club", e.club_name, "", 'list="dl-club" data-pick="club"')}</td></tr>
+      <tr><td>Job</td><td>${jobSelect("contract.job", e.contract.job, e.jobs)}</td></tr>
+      <tr><td>Joined</td><td>${input("contract.joined", e.contract.joined, "", 'type="date"')}</td></tr>
+      <tr><td>Expires</td><td>${input("contract.expires", e.contract.expires, "", 'type="date"')}</td></tr>
+      <tr><td>Wage (£ a week)</td><td>${input("contract.wage", e.contract.wage, "")}</td></tr>
+      <tr><td>Value (£)</td><td>${input("contract.value", e.contract.value, "", 'inputmode="numeric"')}</td></tr></table>
+      <p class="note">The rest of a contract (bonuses, clauses, squad status) is made by the game when a game starts.</p></div>
+    <div class="panel"><h3>International</h3><table class="form">
+      <tr><td>National team</td><td>${input("international.team", e.international.team_name, "", 'list="dl-club" data-pick="club"')}</td></tr>
+      <tr><td>Job</td><td>${jobSelect("international.job", e.international.job, e.jobs)}</td></tr>
+      <tr><td>Caps</td><td>${input("international.caps", e.international.caps)}</td></tr>
+      <tr><td>Goals</td><td>${input("international.goals", e.international.goals)}</td></tr></table></div>
     ${pl ? `<div class="panel wide"><h3>Player</h3>
       <div class="grid4">
         <label>Current ability ${input("ca", pl.ca)}</label><label>Potential ability ${input("pa", pl.pa)}</label>
@@ -269,15 +286,20 @@ async function showPerson(id) {
     };
   }
   document.getElementById("apply").onclick = async () => {
-    const ch = {names: {}, player: pl ? {rep: [], positions: [], attributes: [], other: []} : undefined};
+    const ch = {names: {}, contract: {}, international: {},
+                player: pl ? {rep: [], positions: [], attributes: [], other: []} : undefined};
     const msg = document.getElementById("emsg");
     for (const el of main.querySelectorAll("[data-key]")) {
       const k = el.dataset.key, v = el.value;
       if (el.dataset.pick) {
         if (!(k in ids)) continue;                 // not touched
         if (ids[k] === undefined) { msg.textContent = `Pick ${k} from the list.`; msg.className = "warn"; return; }
-        if (k.startsWith("names.")) ch.names[k.slice(6)] = ids[k]; else ch[k] = ids[k];
+        if (k.startsWith("names.")) ch.names[k.slice(6)] = ids[k];
+        else if (k === "international.team") ch.international.team = ids[k];
+        else ch[k] = ids[k];
       } else if (k === "born") ch.born = v;
+      else if (k.startsWith("contract.")) { const f = k.slice(9); ch.contract[f] = f === "joined" || f === "expires" ? v : +v; }
+      else if (k.startsWith("international.")) ch.international[k.slice(14)] = +v;
       else if (k === "ca" || k === "pa") ch.player[k] = +v;
       else { const [list, i] = k.split("."); ch.player[list][+i] = +v; }
     }
