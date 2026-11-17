@@ -1,6 +1,6 @@
 # Editor for every system, and new playable nations (fork NuWiSan)
 
-Status: editor slice 1 done (`tools/editor/`); the rest is research. Fork `NuWiSan/cm0102-bosman-edition`.
+Status: editor slices 1 and 2a done (`tools/editor/`); the rest is research. Fork `NuWiSan/cm0102-bosman-edition`.
 
 Two features that depend on each other: a database editor that runs on Linux, Mac and Windows, and new nations in the League table, Switzerland first. Upstream keeps "competition structure changes of any kind" out of 0.8.0, so both are fork work.
 
@@ -77,8 +77,13 @@ One generic league object, configured by a file in the database folder, in place
 
 ### 1. Editor: read and show (clubs, people, nations), pictures
 Done. `python3 tools/editor/editor.py <Data folder> --pictures <the game's user folder>` serves the page on `127.0.0.1:8102` and opens it. Clubs, people and nations with search; a record page per club and person; the pictures: each record's badge or face at the game's sizes, the file name that the game looks for (the game's own key: `Ashley Cole 20-12-1980`, checked against the game, also in a leap year), and a new picture from PNG, SVG, WebP or JPEG, made into a PNG by the page and saved under that name. The Pictures page counts the files that the game shows; a PNG file whose name matches no record gets up to three close record names to rename it to (never over another file); a file that is not PNG gets a button that converts it to a PNG of the same name (the original stays, marked as converted). The editor never deletes a file. Format 1 (3.9.68) and format 2 staff tables. The data folder is not written.
-### 2. Editor: edit and save a copy, with checks
-Blocked by: 1.
+### 2a. Editor: edit people, save a new data set
+Done. A person's page edits the first, second and common name (picked from the name tables), the birth date, the nation, the second nation and the club, and for a player the current and potential ability, the three reputations, the 12 position ratings, the 31 attributes and the other bytes of the player data that are not named yet. The changes stay in memory; Save as writes the whole data set into `<user folder>/Databases/<name>` (a new folder, `cmdb1.write_folder` with every file's length checked), which the game plays as a custom database. Checked: Finishing of Thierry Henry set from 19 to 15 and saved; a new game on that data set shows Finishing 15.
+
+The player data, as the game reads it (`staff_compute_player_attribute` `0x543540`, jump table `0x543a94`; names `database_get_player_attribute_name` `0x5428a0`, table `0x543158`): current ability i16 at 5, potential at 7, three reputations i16 from 9, position ratings 0x0f to 0x1a (goalkeeper, sweeper, defender, defensive midfielder, midfielder, attacking midfielder, attacker, wing back, right, left, centre, free role), and the attributes 1 to 31: Acceleration 0x1b, Aggression 0x1c, Agility 0x1d, Anticipation 0x1e, Balance 0x1f, Bravery 0x20, Creativity 0x43, Crossing 0x23, Decisions 0x24, Determination (staff row 0x58), Dribbling 0x26, Finishing 0x27, Flair 0x28, Handling 0x2a, Heading 0x2b, Influence 0x2f, Jumping 0x2e, Long Shots 0x31, Marking 0x32, Off The Ball 0x33, Pace 0x36, Passing 0x37, Positioning 0x39, Reflexes 0x3a, Set Pieces 0x29, Stamina 0x3c, Strength 0x3d, Tackling 0x3e, Teamwork 0x3f, Technique 0x40, Work Rate 0x44. The data stores them as 1 to 20. A new game turns some into values relative to the current ability, and the game shows those from the current ability again (`0x543689`: v = (2 * raw + CA) / 20 + 10, shown (v + v * v / 10) / 3 + 0.5, from 1 to 20; a tenth of the CA for some goalkeeper cases), so its numbers can differ from the data's, as with the original editor. Not named yet: 0x21, 0x22, 0x25, 0x2c, 0x2d, 0x30, 0x34, 0x35, 0x38, 0x3b, 0x41, 0x42, 0x45.
+
+### 2b. Editor: contracts, then clubs
+Blocked by: 2a. The fields to find in the code first.
 ### 3. Read the original for B (Q1, Q2)
 Blocked by: the build files.
 ### 4. Custom league with one division
