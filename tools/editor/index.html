@@ -216,16 +216,35 @@ async function showPerson(id) {
 async function showPictures() {
   setSide("pictures");
   const r = await api("/api/check");
+  const what = kind => kind === "badge" ? "club" : "person";
   const part = (kind, x) => `<div class="panel"><h3>${kind === "badge" ? "Badges" : "Faces"}</h3>
     <div class="note">Folder</div><code>${esc(x.folder) || "-"}</code>
     <p>${x.shown} picture(s) that the game shows.</p>
-    ${x.unknown.length ? `<p class="warn">${x.unknown.length} PNG file(s) whose name matches no ${kind === "badge" ? "club" : "person"}:</p>
-      <div class="note">${x.unknown.map(esc).join("<br>")}</div>` : ""}
-    ${x.other.length ? `<p class="warn">${x.other.length} file(s) that are not PNG, which the game does not read:</p>
-      <div class="note">${x.other.map(esc).join("<br>")}</div>` : ""}</div>`;
+    ${x.unknown.length ? `<p class="warn">PNG files whose name matches no ${what(kind)}:</p>
+      <table>${x.unknown.map(u => `<tr><td>${esc(u.file)}</td><td>${u.like.length
+        ? u.like.map(n => `<button class="btn" data-rename="${kind}" data-file="${esc(u.file)}" data-name="${esc(n)}">Rename to ${esc(n)}</button>`).join(" ")
+        : '<span class="note">no close name: open the record and save the picture there</span>'}</td></tr>`).join("")}</table>` : ""}
+    ${x.other.length ? `<p class="warn">Files that are not PNG (the game reads PNG only):</p>
+      <table>${x.other.map(o => `<tr><td>${esc(o.file)}</td><td>${o.converted
+        ? '<span class="note">converted: the PNG is there, this file can go</span>'
+        : `<button class="btn" data-convert="${kind}" data-file="${esc(o.file)}">Convert to PNG</button>`}</td></tr>`).join("")}</table>` : ""}
+    <p class="note" id="msg-${kind}"></p></div>`;
   main.innerHTML = `<div class="heading">Pictures</div>
     ${info.pictures ? `<div class="record">${part("badge", r.badge)}${part("face", r.face)}</div>`
       : `<div class="panel warn">Start the editor with --pictures &lt;the game's user folder&gt;.</div>`}`;
+  for (const b of main.querySelectorAll("[data-rename]")) b.onclick = async () => {
+    const k = b.dataset.rename;
+    const res = await api(`/api/rename?kind=${k}&file=${encodeURIComponent(b.dataset.file)}&name=${encodeURIComponent(b.dataset.name)}`, {method: "POST"});
+    if (res) showPictures(); else document.getElementById(`msg-${k}`).textContent = "Could not rename: a file with that name may exist.";
+  };
+  for (const b of main.querySelectorAll("[data-convert]")) b.onclick = async () => {
+    const k = b.dataset.convert, f = b.dataset.file;
+    const raw = await fetch(`/api/file?kind=${k}&file=${encodeURIComponent(f)}`);
+    const blob = raw.ok ? await toPng(new File([await raw.blob()], f, {type: raw.headers.get("Content-Type")})) : null;
+    const name = f.replace(/\.[^.]*$/, "");
+    const res = blob ? await api(`/api/picture?kind=${k}&name=${encodeURIComponent(name)}`, {method: "POST", body: blob}) : null;
+    if (res) showPictures(); else document.getElementById(`msg-${k}`).textContent = `Could not convert ${f}.`;
+  };
 }
 
 function route() {

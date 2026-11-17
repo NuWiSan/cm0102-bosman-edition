@@ -12,9 +12,11 @@ server listens on 127.0.0.1 only and opens the page in the browser.
 
 This slice reads and shows clubs, nations and people, and manages the pictures: it shows each record's badge or
 face, says the file name that the game looks for, and saves a picture (PNG, made by the page from PNG, SVG, WebP
-or JPEG) under that name. The data folder is not written.
+or JPEG) under that name. On the Pictures page it converts the picture files that are not PNG and renames the PNG
+files whose name matches no record. It never deletes a file. The data folder is not written.
 """
 import argparse
+import difflib
 import http.server
 import json
 import os
@@ -103,6 +105,14 @@ class Pictures:
         p = self.path(kind, name)
         return bool(p and os.path.isfile(p))
 
+    def file(self, kind, name):
+        """A file of the folder by its full name, or None."""
+        folder = self.folder(kind)
+        if not folder or not name or name in (".", "..") or "/" in name or "\\" in name:
+            return None
+        p = os.path.join(folder, name)
+        return p if os.path.isfile(p) else None
+
     def files(self, kind):
         folder = self.folder(kind)
         if not folder or not os.path.isdir(folder):
@@ -183,6 +193,14 @@ def make_handler(data, pictures):
                     return self.send(404, {})
                 with open(p, "rb") as f:
                     return self.send(200, f.read(), "image/png")
+            if url.path == "/api/file":
+                p = pictures.file(arg("kind"), arg("file")) if arg("kind") in PICTURE_FOLDERS else None
+                if not p:
+                    return self.send(404, {})
+                types = {".svg": "image/svg+xml", ".webp": "image/webp", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                         ".png": "image/png", ".gif": "image/gif", ".bmp": "image/bmp"}
+                with open(p, "rb") as f:
+                    return self.send(200, f.read(), types.get(os.path.splitext(p)[1].lower(), "application/octet-stream"))
             if url.path == "/api/check":
                 return self.send(200, self.check())
             return self.send(404, {})
@@ -190,25 +208,33 @@ def make_handler(data, pictures):
         def check(self):
             """The files of badges/ and faces/: those the game shows, those that match no record, and those that
             are not PNG (the game reads PNG only)."""
-            names = dict(badge={data.badge_name(c) for c in data.clubs.values()},
-                         face={data.face_name(p) for p in data.people.values()})
             out = {}
             for kind in PICTURE_FOLDERS:
-                shown, unknown, other = [], [], []
-                for f in pictures.files(kind):
+                names = self.names(kind)
+                files = pictures.files(kind)
+                pngs = {os.path.splitext(f)[0] for f in files if f.lower().endswith(".png")}
+                shown, unknown, other = 0, [], []
+                for f in files:
                     base, ext = os.path.splitext(f)
                     if ext.lower() != ".png":
-                        other.append(f)
-                    elif base in names[kind]:
-                        shown.append(f)
+                        other.append(dict(file=f, converted=base in pngs))
+                    elif base in names:
+                        shown += 1
                     else:
-                        unknown.append(f)
-                out[kind] = dict(folder=pictures.folder(kind) or "", shown=len(shown), unknown=unknown, other=other)
+                        unknown.append(dict(file=f, like=difflib.get_close_matches(base, names, 3, 0.6)))
+                out[kind] = dict(folder=pictures.folder(kind) or "", shown=shown, unknown=unknown, other=other)
             return out
+
+        def names(self, kind):
+            if kind == "badge":
+                return {data.badge_name(c) for c in data.clubs.values()}
+            return {data.face_name(p) for p in data.people.values()}
 
         def do_POST(self):
             url = urllib.parse.urlparse(self.path)
             q = urllib.parse.parse_qs(url.query)
+            if url.path == "/api/rename" and pictures.user:
+                return self.rename(q)
             if url.path != "/api/picture" or not pictures.user:
                 return self.send(404, {})
             kind, name = q.get("kind", [""])[0], q.get("name", [""])[0]
@@ -224,6 +250,19 @@ def make_handler(data, pictures):
                 f.write(body)
             os.replace(path + ".part", path)
             return self.send(200, dict(saved=os.path.basename(path)))
+
+        def rename(self, q):
+            """A PNG file of the folder gets the name of a record. Never over another file."""
+            kind, old, new = (q.get(k, [""])[0] for k in ("kind", "file", "name"))
+            if kind not in PICTURE_FOLDERS or new not in self.names(kind):
+                return self.send(400, dict(error="no such record"))
+            src, dst = pictures.file(kind, old), pictures.path(kind, new)
+            if not src or not src.lower().endswith(".png") or not dst:
+                return self.send(400, dict(error="bad file"))
+            if os.path.exists(dst):
+                return self.send(409, dict(error="a file with that name exists"))
+            os.rename(src, dst)
+            return self.send(200, dict(saved=os.path.basename(dst)))
 
     return Handler
 
