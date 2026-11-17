@@ -1,6 +1,6 @@
 # Editor for every system, and new playable nations (fork NuWiSan)
 
-Status: editor slices 1 and 2a done (`tools/editor/`); the rest is research. Fork `NuWiSan/cm0102-bosman-edition`.
+Status: editor slices 1 and 2 done (`tools/editor/`); the rest is research. Fork `NuWiSan/cm0102-bosman-edition`.
 
 Two features that depend on each other: a database editor that runs on Linux, Mac and Windows, and new nations in the League table, Switzerland first. Upstream keeps "competition structure changes of any kind" out of 0.8.0, so both are fork work.
 
@@ -77,45 +77,50 @@ One generic league object, configured by a file in the database folder, in place
 
 ### 1. Editor: read and show (clubs, people, nations), pictures
 Done. `python3 tools/editor/editor.py <Data folder> --pictures <the game's user folder>` serves the page on `127.0.0.1:8102` and opens it. Clubs, people and nations with search; a record page per club and person; the pictures: each record's badge or face at the game's sizes, the file name that the game looks for (the game's own key: `Ashley Cole 20-12-1980`, checked against the game, also in a leap year), and a new picture from PNG, SVG, WebP or JPEG, made into a PNG by the page and saved under that name. The Pictures page counts the files that the game shows; a PNG file whose name matches no record gets up to three close record names to rename it to (never over another file); a file that is not PNG gets a button that converts it to a PNG of the same name (the original stays, marked as converted). The editor never deletes a file. Format 1 (3.9.68) and format 2 staff tables. The data folder is not written.
-### 2a. Editor: edit people, save a new data set
-Done. A person's page edits the first, second and common name (picked from the name tables), the birth date, the nation, the second nation and the club, and for a player the current and potential ability, the three reputations, the 12 position ratings, and the 30 attributes that the profile shows besides Determination (under 2d). The changes stay in memory; Save as writes the whole data set into `<user folder>/Databases/<name>` (a new folder, `cmdb1.write_folder` with every file's length checked), which the game plays as a custom database. Checked: Finishing of Thierry Henry set from 19 to 15 and saved; a new game on that data set shows Finishing 15.
+### 2. Editor: every table of the original editor
+Done. The editor edits the tables that the original editor (`Editor/cm0102ed.exe`) edits: clubs, people, nations, club competitions (club and nation comps), awards (staff comps), stadiums, cities, continents, colours, officials, the three name tables, and the histories (club comp and nation comp history on the competition page, the career on the person page, the award winners on the award page). The changes stay in memory; Save as writes the whole data set into `<user folder>/Databases/<name>` (a new folder, `cmdb1.write_folder` with every file's length checked), which the game plays as a custom database. Opened and saved with no change, the folder equals the original byte for byte; one change changes only its bytes.
 
-The player data, as the game reads it (`staff_compute_player_attribute` `0x543540`, jump table `0x543a94`; names `database_get_player_attribute_name` `0x5428a0`, table `0x543158`): current ability i16 at 5, potential at 7, three reputations i16 from 9, position ratings 0x0f to 0x1a (goalkeeper, sweeper, defender, defensive midfielder, midfielder, attacking midfielder, attacker, wing back, right, left, centre, free role), and the attributes 1 to 31: Acceleration 0x1b, Aggression 0x1c, Agility 0x1d, Anticipation 0x1e, Balance 0x1f, Bravery 0x20, Creativity 0x43, Crossing 0x23, Decisions 0x24, Determination (staff row 0x58), Dribbling 0x26, Finishing 0x27, Flair 0x28, Handling 0x2a, Heading 0x2b, Influence 0x2f, Jumping 0x2e, Long Shots 0x31, Marking 0x32, Off The Ball 0x33, Pace 0x36, Passing 0x37, Positioning 0x39, Reflexes 0x3a, Set Pieces 0x29, Stamina 0x3c, Strength 0x3d, Tackling 0x3e, Teamwork 0x3f, Technique 0x40, Work Rate 0x44. The data stores them as 1 to 20. A new game turns some into values relative to the current ability, and the game shows those from the current ability again (`0x543689`: v = (2 * raw + CA) / 20 + 10, shown (v + v * v / 10) / 3 + 0.5, from 1 to 20; a tenth of the CA for some goalkeeper cases), so its numbers can differ from the data's, as with the original editor. In the data 0 means random (the original editor's hint "0 (random) - 20 (best)"); the game fills it when a game starts.
+`tools/editor/records.py` holds one layout per table (offset, kind, range, and for a link its table), and the page draws every record from it. Sources of the layouts:
+- The links: the load's id pass, ported in `src/cm3/database.c` (`club_fields`, `nation_fields` and the others, with the `FUN_` addresses of the original). It names every offset that holds an id, and its table.
+- The order and names of the other fields: the field names of the original editor (strings of `cm0102ed.exe`), which follow the order of the row, and the values of the 3.9.68 data. The reads named below confirm the order where the game shows the field.
+- The ids equal the rows in every table (club and nation comp ids, and national team ids, follow on from the first table). Name ids are at 0x33 of the name rows.
 
-### 2b. Editor: contracts and national team
-Done. The club contract and the national team of a person, in the staff row (format 1 and 2): international caps 0x22 and goals 0x23 (bytes), national team 0x24 (a club id of `nat_club.dat`), national job 0x28, club 0x39, club job 0x3d, joined 0x3e and expires 0x46 (dates), wage 0x4e (i32, pounds a week) and value 0x52 (i32, pounds). The jobs 0 to 17 are those of `database_get_job_name` `0x53ad00` (jump table `0x53b384`): Unemployed, Chairman, Managing Director, General Manager, Director Of Football, Manager, Assistant Manager, Reserve Team Manager, Coach, Scout, Physio, Player, Player/Manager, Player/Assistant Manager, (14: no name), Player/Coach, Retired Player, Media Pundit. Bonuses, clauses and squad status are not in the data: the game makes them when a game starts. Checked: Thierry Henry's wage set to 25,000, expires to 30.6.2006 and caps to 40; a new game on that data set shows the three on the Contract tab.
-
-### 2c. Editor: clubs
-Done. A club's page edits the name, short name, nation, division and last division, status, stadium, the three attendances, training facilities, reputation, bank balance, the six colours (with a swatch each) and three rivals. Save as writes them with the people's changes.
-
-The club row (`club.dat` and `nat_club.dat`, 581 bytes; `include/database.h` `struct club`): name at 4 (51 bytes), short name at 0x38 (26), and these ids and values:
-
-| Offset | Field | Read from |
+| Table (file) | Row | Fields |
 |---|---|---|
-| 0x53 | nation (id of `nation.dat`) | `struct club` |
-| 0x57, 0x5b | division, last division (ids of table 12, the club comps) | `struct club` |
-| 0x64 | status: 1 Professional, 2 Semi-Professional, 3 Amateur | the info tab `0x460ec6`; `Finance::init_for_club` makes an amateur club of a division that the game plays semi-professional (`0x596280`) |
-| 0x65 | bank balance, i32, pounds | `Finance::init_for_club` `0x5961d0` |
-| 0x69 | stadium (id of `stadium.dat`, table 5, name at 4) | `struct club`; the info tab shows its name |
-| 0x73, 0x77, 0x7b | average, minimum, maximum attendance, i32 | the crowd estimate `0x85d52c` |
-| 0x7f | training facilities, 1 to 20 | the info tab's Training Ground text `0x461506` |
-| 0x80 | reputation, i16, 1 to 10000 | `struct club` (the reader makes 0 into 1) |
-| 0x83 | six colours (ids of `colour.dat`, table 2: name at 4, RGB at 55): home foreground and background, then away, then third | `struct club`; Arsenal: White on Red 1, as its heading |
-| 0xb3 | three club ids, the data's rivals (Arsenal: Tottenham Hotspur, Chelsea, Manchester United) | `struct club`; their use in the game is not read yet |
+| Club (`club.dat`, `nat_club.dat`) | 581 | name 4 (51), short name 0x38 (26), nation 0x53, division 0x57, last division 0x5b, last position 0x5f, reserve division 0x60, status 0x64, bank balance 0x65, stadium 0x69, owns the stadium 0x6d, reserve stadium 0x6e, match day 0x72, attendances 0x73/0x77/0x7b, training facilities 0x7f, reputation 0x80, PLC 0x82, six colours 0x83, favourite and disliked people 0x9b/0xa7, rivals 0xb3, chairman 0xbf, directors 0xc3, manager 0xcf, assistant 0xd3, squad 0xd7 (50), coaches 0x19f (5), scouts 0x1b3 (7), physios 0x1cf (3) |
+| Person (`staff.dat`, table 6) | 157 | names 4/8/0xc (name ids), born 0x10, year of birth 0x18, nation 0x1a, second nation 0x1e, caps 0x22, goals 0x23, national team 0x24, its job 0x28, joined 0x29, expires 0x31, club 0x39, job 0x3d, joined 0x3e, expires 0x46, wage 0x4e, value 0x52, personal attributes 0x56..0x5d, kind of row 0x5f (2 player, 1 non-player), favourite and disliked clubs 0x61/0x6d, favourite and disliked people 0x79/0x85, player row 0x91, non-player row 0x99 |
+| Player (`staff.dat`, table 10) | 70 | squad number 4, current and potential ability 5/7, home, current and world reputation 9/0xb/0xd, 12 positions 0xf, 42 attributes 0x1b..0x44 |
+| Non-player (`staff.dat`, table 9) | 68 | current and potential ability 4/6, three reputations 8/0xa/0xc, 21 attributes 0xe..0x22, preferred formation 0x43 |
+| Nation (`nation.dat`) | 290 | name 4, short name 0x38, three letter name 0x53, nationality 0x57, continent 0x71, region 0x75, actual region 0x76, three languages 0x77, capital 0x7a, state of development 0x7e, group membership 0x7f, national stadium 0x80, game importance 0x84, league standard 0x85, number of clubs 0x86, of staff 0x88, reputation 0x8e, six colours 0x90, FIFA coefficients 0xa8..0xd8, UEFA coefficients 0xe0..0x108, rivals 0x110 |
+| Club and nation comp (`club_comp.dat`, `nation_comp.dat`) | 107 | name 4, short name 0x38, three letter name 0x53, continent 0x59, nation 0x5d, two colours 0x61, reputation 0x69 |
+| Award (`staff_comp.dat`) | 101 | name 4, short name 0x38, continent 0x53, nation 0x57, two colours 0x5b, reputation 0x63 |
+| Stadium (`stadium.dat`) | 78 | name 4, city 0x38, capacity 0x3c, seating 0x40, expansion 0x44, nearby stadium 0x48, covered 0x4c, under-soil heating 0x4d |
+| City (`city.dat`) | 56 | name 4 (26), nation 0x1f, latitude 0x23, longitude 0x2b (doubles), attraction 0x33, weather 0x34 (a row of `weather.cfg`) |
+| Continent (`continent.dat`) | 198 | name 4 (26), three letter name 0x1f, continentality 0x23, federation 0x3d (101), its short name 0xa3, regional strength 0xbe (double) |
+| Colour (`colour.dat`) | 58 | name 4, red, green, blue 0x37..0x39 |
+| Official (`officials.dat`) | 43 | names 4/8, born 0xc, nation 0x16, city 0x1a, current and potential ability 0x1e/0x20, reputation 0x22, seven attributes 0x24..0x2a |
+| Name (`first_names.dat` and the others) | 60 | name 0, id 0x33, nation 0x37, count 0x3b |
+| Comp history (`club_comp_history.dat`, `nation_comp_history.dat`) | 26 | comp 4, year 8, winners 0xa, runners-up 0xe, third 0x12, host 0x16 |
+| Career (`staff_history.dat`) | 17 | person 4, year 8, club 0xa, on loan 0xe, apps 0xf, goals 0x10 |
+| Award history (`staff_comp_history.dat`) | 58 | award 4, year 8, then winner, second and third: first name, second name, person and a value each, from 0xa, 0x1a and 0x2a |
 
-An empty id is -2, as in the data. The data also holds negative ids of records that this data set lacks; the editor keeps any id that is not changed.
+Reads that confirm the plain fields:
+- Club: status (the info tab `0x460ec6`; `Finance::init_for_club` makes an amateur club of a division that the game plays semi-professional, `0x596280`), balance (`0x5961d0`), attendances (the crowd estimate `0x85d52c`), training facilities (the info tab's Training Ground text `0x461506`).
+- Player: the attributes that the profile shows (`staff_compute_player_attribute` `0x543540`, jump table `0x543a94`; names `0x5428a0`); the profile shows some relative to the current ability after a new game (`0x543689`), as with the original editor. In the data 0 means random (the original editor's hint "0 (random) - 20 (best)").
+- Personal attributes: adaptability and determination (`0x543fd0`), ambition (deserved squad status `0x4ca4ee`), loyalty and temperament (`staff_fade_staff_relationships` `0x547fb0`, `0x548016`), professionalism (`game_check_players_missing_training` `0x5d6b7e`, `AWOL::daily_update` `0x4191fc`).
+- Non-player: the 12 attributes that the game shows (`staff_compute_non_player_attribute` `0x543fd0`, jump table `0x5442b4`; names `0x543b10`) are at the offsets of the alphabetical order.
+- The jobs 0 to 17: `database_get_job_name` `0x53ad00` (jump table `0x53b384`).
 
-Key names: at the load the game finds some clubs, nations, comps and colours by name (`match_club_key_id` `0x6146b0` for the clubs, `_stricmp` `0x951c50`) and keeps their rows in key ids; a key id that stays unset stops the load with the box "index.cpp 5809" (`report_missing_key_id` `0x60d780`). So the name of a club that the game finds by name cannot change, and no club takes such a name. The editor reads the names from the player's `cm0102.exe` next to the Data folder, through `src/cm3/key_ids_table.c`; with no exe, club names cannot change.
+Rules that the editor keeps:
+- Key names: at the load the game finds some clubs, nations, comps, awards, colours and continents by name (`match_club_key_id` `0x6146b0` for the clubs, `_stricmp` `0x951c50`) and keeps their rows in key ids; a key id that stays unset stops the load with the box "index.cpp 5809" (`report_missing_key_id` `0x60d780`). So the name of such a record cannot change, and no record takes such a name. The editor reads the names from the player's `cm0102.exe` next to the Data folder, through `src/cm3/key_ids_table.c`; with no exe, these names cannot change.
+- The club's staff lists are the master at a new game (create_game sets the person's club from them, `docs/research/2026-10-19-club-table-users.md`). When a person's club, national team or job changes, the editor takes the person out of the old club's lists and puts them in the new club's lists of the job, as `database_leave_club` `0x53c190` (jump table `0x53c54c`) and `database_add_staff_to_club` `0x53bd10` do: 1 chairman, 2 to 4 directors, 5 manager, 6 and 7 assistant, 8 coaches, 9 scouts, 10 physios, 11 squad, 12 manager and squad, 13 assistant and squad, 15 coaches and squad. A full list refuses the change.
+- A link that is not changed keeps its id: the data holds ids of records that the data set lacks. An emptied link gets the data's empty value (-2, or -1 in the histories and the person lists).
+- Not edited: the kind of a person's row (it needs a player or non-player row), staff byte 0x5e (flags: `0x4842b6` tests the value 2, `0x487b46` the value 4), player byte 0x45 (2 in every row of the data), the non-player links 0x23 (eight person ids), and the club fields that the game sets at a new game (0x1db, 0x1df, 0x1e0, 0x230, 0x244).
 
-Not named yet: 0x37, 0x52, 0x5f, 0x60 (a club comp id), 0x6d, 0x6e (a second stadium id), 0x72, 0x82.
-
-Checked: Arsenal set to Amateur, stadium Wembley, training facilities 3 and balance -5,000,000; a new game on that data set shows Semi-Professional (as above), Wembley, London, 78000 (all seated), Awful facilities and Finances Ok. Renaming Aston Villa stops the load at index.cpp 5809, so the editor refuses it.
-### 2d. Editor: hidden and personal attributes
-Done. The 42 attribute bytes 0x1b to 0x44 of the player data are in the alphabetical order of the original editor's field names (`staff_pl_acceleration` to `staff_pl_work_rate`, strings of `cm0102ed.exe`), as `docs/research/2026-10-21-goalkeeper-attributes.md` shows with the getter `0x543540`. The 12 bytes that the game does not show: Consistency 0x21, Corners 0x22, Dirtiness 0x25, Important Matches 0x2c, Injury Proneness 0x2d, Left Foot 0x30, Natural Fitness 0x34, One On Ones 0x35, Penalties 0x38, Right Foot 0x3b, Throw Ins 0x41, Versatility 0x42 (One On Ones, Penalties and Throw Ins are relative to the current ability after a new game, `0x538d43`). Byte 0x45 is 2 in every row of the original data; its use is not read yet, and the page keeps it under "not named yet".
-
-The personal attributes of every person are staff row 0x56 to 0x5d, in the order of the original editor's field names (`staff_adaptability` to `staff_temperament`): Adaptability 0x56, Ambition 0x57, Determination 0x58, Loyalty 0x59, Pressure 0x5a, Professionalism 0x5b, Sportsmanship 0x5c, Temperament 0x5d. Reads that confirm the order: ambition in the deserved squad status (`0x4ca4ee`), determination in `0x543540`, loyalty and temperament in `staff_fade_staff_relationships` (`0x547fb0`, `0x548016`), professionalism in `game_check_players_missing_training` (`0x5d6b7e`) and `AWOL::daily_update` (`0x4191fc`). The game shows only Determination, in the player's profile; the page edits it with the other seven. In the data most people have 0. Staff byte 0x5e is a set of flags (`0x4842b6` tests its value 2, `0x487b46` its value 4); not edited.
-
-Checked: Thierry Henry's Determination set to 7 and Left Foot to 1; a new game on that data set shows Determination 7 and Preferred Foot "Right Only".
+Checked in a new game on saved data sets:
+- Thierry Henry: Finishing 15, Determination 7, Left Foot 1 (Preferred Foot "Right Only"), wage 25,000, expires 30.6.2006, 40 caps, all shown. Moved to Chelsea: he is in Chelsea's squad and not in Arsenal's.
+- Arsenal: Amateur (shown Semi-Professional, as above), stadium Wembley (Wembley, London, 78000), training facilities 3 (Awful facilities), balance -5,000,000 (Finances Ok), home background colour Blue 1 (the club heading is blue). Renaming Aston Villa stops the load at index.cpp 5809, so the editor refuses it.
+- The city London renamed: the info tab shows "Highbury, London Test". France's nationality renamed: the profile of a French player shows it. The English Premier Division's short name renamed: the club screen's button shows it.
 
 ### 3. Read the original for B (Q1, Q2)
 Blocked by: the build files.

@@ -17,7 +17,7 @@
     display: flex; flex-direction: column; padding: 8px 6px; gap: 6px; }
   #side .brand { color: var(--yellow); text-align: center; font-weight: bold; padding: 8px 0 12px; line-height: 1.3; }
   #side button { background: linear-gradient(#20209a, #10106a); border: 1px solid #000; color: var(--white);
-    padding: 12px 6px; font: inherit; cursor: pointer; }
+    padding: 7px 6px; font: inherit; cursor: pointer; }
   #side button.on { color: var(--yellow); outline: 1px solid var(--yellow); }
   #side .info { margin-top: auto; color: var(--grey); font-size: 11px; word-break: break-all; }
   #col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -64,6 +64,7 @@
   .swatch { display: inline-block; width: 20px; height: 20px; margin-left: 6px; vertical-align: middle; border: 1px solid #000; }
   .form input { width: 100%; background: #d8d8d8; border: 1px solid #000; padding: 3px 6px; font: inherit; }
   .num { width: 54px !important; text-align: right; }
+  .wnum { width: 120px !important; text-align: right; }
   .grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 14px; }
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 14px; }
   .grid2 label, .grid3 label, .grid4 label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
@@ -73,14 +74,32 @@
     padding: 6px 10px; gap: 8px; align-items: center; }
   #savebar input { background: #d8d8d8; border: 1px solid #000; padding: 4px 6px; font: inherit; }
   details summary { cursor: pointer; color: var(--grey); }
+  .refbox { display: flex; gap: 4px; align-items: center; }
+  .go { color: var(--yellow); text-decoration: none; font-weight: bold; padding: 0 4px; }
+  .check { width: auto !important; }
+  .swatch.big { width: 30px; height: 30px; margin: 0; }
+  .people { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-bottom: 6px; }
+  .people a { color: var(--yellow); text-decoration: none; }
+  .hist { max-height: 420px; overflow: auto; }
+  .hist td { padding: 1px 4px; }
+  .hist input { width: 100%; background: #d8d8d8; border: 1px solid #000; padding: 2px 4px; font: inherit; }
+  .hist .num { width: 60px !important; }
 </style>
 </head>
 <body>
 <div id="side">
   <div class="brand">CM 01/02<br>Editor</div>
-  <button data-view="clubs">Clubs</button>
-  <button data-view="people">People</button>
-  <button data-view="nations">Nations</button>
+  <button data-view="club">Clubs</button>
+  <button data-view="person">People</button>
+  <button data-view="nation">Nations</button>
+  <button data-view="comp">Competitions</button>
+  <button data-view="staff_comp">Awards</button>
+  <button data-view="stadium">Stadiums</button>
+  <button data-view="city">Cities</button>
+  <button data-view="continent">Continents</button>
+  <button data-view="colour">Colours</button>
+  <button data-view="official">Officials</button>
+  <button data-view="first">Names</button>
   <button data-view="pictures">Pictures</button>
   <div class="info" id="info"></div>
 </div>
@@ -99,42 +118,37 @@ const api = async (path, opts) => { const r = await fetch(path, opts); return r.
 const pictureUrl = (kind, name) => `/api/picture?kind=${kind}&name=${encodeURIComponent(name)}&t=${Date.now()}`;
 const dmy = iso => iso ? iso.split("-").reverse().map(Number).join(".") : "";
 
-const views = {
-  clubs: {title: "Clubs", kind: "badge", api: "/api/clubs",
-    head: ["", "Name", "Short name", "Nation", "Badge"],
-    row: c => [c.has_picture ? `<img class="mini" src="${pictureUrl("badge", c.picture)}">` : "",
-               esc(c.name), esc(c.short), esc(c.nation_name), `<span class="dot ${c.has_picture ? "yes" : "no"}"></span>`],
-    open: c => showClub(c.id)},
-  people: {title: "People", kind: "face", api: "/api/people",
-    head: ["Name", "Born", "Nation", "Club", "Face"],
-    row: p => [esc(p.name), dmy(p.born), esc(p.nation_name), esc(p.club_name),
-               `<span class="dot ${p.has_picture ? "yes" : "no"}"></span>`],
-    open: p => showPerson(p.id)},
-  nations: {title: "Nations", api: "/api/nations", head: ["Name", "Short name"],
-    row: n => [esc(n.name), esc(n.short)], open: null},
-};
+const PAGE_TITLES = {first: "First names", second: "Second names", common: "Common names"};
+const SIDE = {second: "first", common: "first"};
 
 function setSide(view) {
-  for (const b of document.querySelectorAll("#side button")) b.classList.toggle("on", b.dataset.view === view);
+  for (const b of document.querySelectorAll("#side button")) b.classList.toggle("on", b.dataset.view === (SIDE[view] || view));
 }
 
-async function showList(view, q = "", offset = 0) {
-  setSide(view);
-  const v = views[view];
-  main.innerHTML = `<div class="heading">${v.title}</div>
+async function showList(kind, q = "", offset = 0) {
+  setSide(kind);
+  const title = (info.tables.find(t => t.key === kind) || {}).title || kind;
+  const names = ["first", "second", "common"].includes(kind) ? `<div class="bar">${["first", "second", "common"].map(k =>
+    `<button class="btn" data-names="${k}" ${k === kind ? "disabled" : ""}>${PAGE_TITLES[k]}</button>`).join("")}</div>` : "";
+  main.innerHTML = `<div class="heading">${esc(title)}</div>${names}
     <div class="bar"><input id="q" placeholder="Search" value="${esc(q)}"><button class="btn" id="go">Search</button></div>
     <div class="list" id="list"></div><div class="pager" id="pager"></div>`;
+  for (const b of main.querySelectorAll("[data-names]")) b.onclick = () => { location.hash = b.dataset.names; };
   const input = document.getElementById("q");
-  const run = (o = 0) => showList(view, input.value, o);
+  const run = (o = 0) => showList(kind, input.value, o);
   document.getElementById("go").onclick = () => run();
   input.onkeydown = e => { if (e.key === "Enter") run(); };
   input.focus();
-  const res = await api(`${v.api}?q=${encodeURIComponent(q)}&offset=${offset}`);
+  const res = await api(`/api/list/${kind}?q=${encodeURIComponent(q)}&offset=${offset}`);
   if (!res) return;
+  const pic = res.rows.length && res.rows[0].picture;
   const list = document.getElementById("list");
-  list.innerHTML = `<table><tr>${v.head.map(h => `<th>${h}</th>`).join("")}</tr>${res.rows.map((r, i) =>
-    `<tr class="row" data-i="${i}">${v.row(r).map((c, k) => `<td${k ? ' class="v"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</table>`;
-  if (v.open) for (const tr of list.querySelectorAll("tr.row")) tr.onclick = () => v.open(res.rows[+tr.dataset.i]);
+  list.innerHTML = `<table><tr>${pic ? "<th></th>" : ""}<th>Name</th>${res.head.map(h => `<th>${esc(h)}</th>`).join("")}
+    ${pic ? "<th>Picture</th>" : ""}</tr>${res.rows.map(r => `<tr class="row" data-id="${r.id}">
+    ${pic ? `<td>${r.picture.has && r.picture.kind === "badge" ? `<img class="mini" src="${pictureUrl("badge", r.picture.name)}">` : ""}</td>` : ""}
+    <td>${esc(r.name)}</td>${r.cols.map(c => `<td class="v">${esc(c)}</td>`).join("")}
+    ${pic ? `<td><span class="dot ${r.picture.has ? "yes" : "no"}"></span></td>` : ""}</tr>`).join("")}</table>`;
+  for (const tr of list.querySelectorAll("tr.row")) tr.onclick = () => { location.hash = `${kind}/${tr.dataset.id}`; };
   const pager = document.getElementById("pager");
   const last = Math.min(res.offset + res.rows.length, res.total);
   pager.innerHTML = `<span>${res.total ? res.offset + 1 : 0}–${last} of ${res.total}</span>` +
@@ -145,8 +159,126 @@ async function showList(view, q = "", offset = 0) {
   if (next) next.onclick = () => run(last);
 }
 
-function fieldsTable(rows) {
-  return `<table class="fields">${rows.map(([k, v]) => `<tr><td>${k}</td><td class="v">${v}</td></tr>`).join("")}</table>`;
+/* The input of one field. Links are a text input with suggestions; the picked id is kept in data-id. */
+function fieldInput(f, prefix = "") {
+  const key = prefix + f.key, dis = f.readonly ? " disabled" : "";
+  switch (f.kind) {
+    case "text": return `<input data-key="${key}" value="${esc(f.value)}" maxlength="${f.size}"${dis}>`;
+    case "date": return `<input data-key="${key}" type="date" value="${esc(f.value)}"${dis}>`;
+    case "flag": return `<input data-key="${key}" type="checkbox" class="check"${f.value ? " checked" : ""}${dis}>`;
+    case "enum": return `<select data-key="${key}"${dis}>${f.choices.map(([k, n]) =>
+      `<option value="${k}"${k === f.value ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>`;
+    case "colour": return `<select data-key="${key}" class="colour"${dis}>${[[-2, "None", ""], ...colours].map(([k, n, rgb]) =>
+      `<option value="${k}" data-rgb="${rgb}"${k === f.value ? " selected" : ""}>${esc(n)}</option>`).join("")}${
+      colours.some(c => c[0] === f.value) || f.value === -2 ? "" : `<option value="${f.value}" selected>(id ${f.value})</option>`}</select>
+      <span class="swatch"></span>`;
+    case "ref": case "name": case "staff":
+      return `<span class="refbox"><input data-key="${key}" data-pick="${f.ref}" data-id="${f.value}" value="${esc(f.text)}"
+        list="dl-${key.replace(/\W/g, "_")}"${dis}><datalist id="dl-${key.replace(/\W/g, "_")}"></datalist>${
+        f.value >= 0 && OPENS[f.ref] ? `<a class="go" href="#${OPENS[f.ref]}/${f.value}" title="Open">›</a>` : ""}</span>`;
+    default: return `<input data-key="${key}" class="${f.kind !== "int" ? "" : f.range && f.range[1] > 99999 ? "wnum" : "num"}"
+      value="${esc(f.value)}"${dis}>`;
+  }
+}
+const OPENS = {club: "club", person: "person", nation: "nation", comp: "comp", staff_comp: "staff_comp", stadium: "stadium",
+               city: "city", continent: "continent", colour: "colour", first: "first", second: "second", common: "common"};
+let colours = [];
+
+/* The value of an input as the server takes it, or undefined for a link whose text is not a picked record. */
+function inputValue(el) {
+  if (el.type === "checkbox") return el.checked;
+  if (el.dataset.pick !== undefined) return el.value === "" ? -1 : (el.dataset.ok === "0" ? undefined : +el.dataset.id);
+  if (el.tagName === "SELECT") return +el.value;
+  return el.value;
+}
+
+function wireInputs(root) {
+  for (const el of root.querySelectorAll("[data-key]")) {
+    el.addEventListener(el.type === "checkbox" || el.tagName === "SELECT" ? "change" : "input", () => el.dataset.dirty = "1");
+  }
+  for (const el of root.querySelectorAll("select.colour")) {
+    const paint = () => { el.nextElementSibling.style.background = el.selectedOptions[0].dataset.rgb || "transparent"; };
+    el.addEventListener("change", paint); paint();
+  }
+  for (const el of root.querySelectorAll("[data-pick]")) {
+    const dl = document.getElementById(el.getAttribute("list"));
+    el.addEventListener("input", async () => {
+      const found = await api(`/api/pick/${el.dataset.pick}?q=${encodeURIComponent(el.value)}`) || [];
+      dl.innerHTML = found.map(r => `<option value="${esc(r.name)}">`).join("");
+      const hit = found.find(r => r.name === el.value);
+      el.dataset.ok = hit || el.value === "" ? "1" : "0";
+      if (hit) el.dataset.id = hit.id;
+    });
+  }
+}
+
+function dirtyValues(root, prefix = "") {
+  const ch = {};
+  for (const el of root.querySelectorAll("[data-key][data-dirty]")) {
+    if (prefix && !el.dataset.key.startsWith(prefix)) continue;
+    const v = inputValue(el);
+    if (v === undefined) return {error: "Pick each link from the list."};
+    ch[el.dataset.key.slice(prefix.length)] = v;
+  }
+  return {ch};
+}
+
+async function showRecord(kind, id) {
+  setSide(kind);
+  const rec = await api(`/api/rec/${kind}/${id}`);
+  if (!rec) { main.innerHTML = `<div class="panel warn">No such record.</div>`; return; }
+  const pic = rec.picture;
+  const rows = f => `<tr><td>${esc(f.label)}</td><td>${fieldInput(f)}${f.note ? `<div class="note">${esc(f.note)}</div>` : ""}</td></tr>`;
+  const big = s => s.fields.length > 12 && s.fields.every(f => f.kind === "int");
+  const panel = s => big(s)
+    ? `<div class="panel wide"><h3>${esc(s.title)}</h3><div class="grid4">${s.fields.map(f =>
+        `<label>${esc(f.label)} ${fieldInput(f)}</label>`).join("")}</div></div>`
+    : `<div class="panel"><h3>${esc(s.title)}</h3><table class="form">${s.fields.map(rows).join("")}</table></div>`;
+  const staff = rec.staff ? `<div class="panel"><h3>Staff and squad</h3>${rec.staff.filter(x => x.people.length).map(x =>
+      `<div class="note">${esc(x.title)}</div><div class="people">${x.people.map(p =>
+        `<a href="#person/${p.id}">${esc(p.name)}</a>`).join("")}</div>`).join("")}
+      <p class="note">A person joins or leaves a club on the person's page (Contract): the lists follow.</p></div>` : "";
+  const hist = rec.history ? `<div class="panel wide"><h3>${esc(rec.history.title)}</h3>${rec.history.rows.length ?
+      `<div class="hist"><table><tr>${rec.history.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr>${rec.history.rows.map(r =>
+        `<tr data-row="${r.row}">${r.cells.map(c => `<td>${fieldInput(c, `h${r.row}.`)}</td>`).join("")}</tr>`).join("")}</table></div>`
+      : '<p class="note">No rows.</p>'}</div>` : "";
+  main.innerHTML = `<div class="heading">${pic && pic.has && pic.kind === "badge" ? `<img src="${pictureUrl("badge", pic.name)}">` : ""}${
+      rec.rgb ? `<span class="swatch big" style="background:${rec.rgb}"></span>` : ""}${esc(rec.name)}</div>
+    <div class="bar"><button class="btn" id="back">Back</button><button class="btn" id="apply">Apply changes</button>
+      <span class="note" id="emsg"></span></div>
+    <div class="record">${rec.sections.slice(0, 1).map(panel).join("")}${pic ? picturePanel(pic.kind, pic.name, pic.has) : ""}
+      ${rec.sections.slice(1).map(panel).join("")}${staff}${hist}</div>
+`;
+  if (rec.locked) {
+    const first = main.querySelector(".panel .form");
+    if (first) first.insertAdjacentHTML("afterend", `<p class="note">${esc(rec.locked[0].toUpperCase() + rec.locked.slice(1))}.</p>`);
+  }
+  document.getElementById("back").onclick = () => history.back();
+  if (pic) wirePicture(pic.kind, pic.name);
+  wireInputs(main);
+  document.getElementById("apply").onclick = async () => {
+    const msg = document.getElementById("emsg");
+    const say = (t, ok) => { msg.textContent = t; msg.className = ok ? "note" : "warn"; };
+    const all = dirtyValues(main);
+    if (all.error) return say(all.error);
+    const own = {}, rowsCh = {};
+    for (const [k, v] of Object.entries(all.ch)) {
+      const m = /^h(\d+)\.(.*)$/.exec(k);
+      if (m) (rowsCh[m[1]] = rowsCh[m[1]] || {})[m[2]] = v; else own[k] = v;
+    }
+    if (!Object.keys(own).length && !Object.keys(rowsCh).length) return say("Nothing changed.", true);
+    if (Object.keys(own).length) {
+      const r = await fetch(`/api/rec/${kind}/${id}`, {method: "POST", body: JSON.stringify(own)});
+      if (!r.ok) return say((await r.json()).error);
+    }
+    for (const [row, ch] of Object.entries(rowsCh)) {
+      const r = await fetch(`/api/history/${kind}/${row}`, {method: "POST", body: JSON.stringify(ch)});
+      if (!r.ok) return say(`History: ${(await r.json()).error}`);
+    }
+    await showRecord(kind, id);
+    say("Changed. Save writes a new data set.", true);
+    refreshSaveBar();
+  };
 }
 
 /* The picture panel: the file name that the game looks for, the picture at the game's sizes, and a new one from
@@ -205,193 +337,11 @@ async function toPng(f) {
   } catch (e) { return null; } finally { URL.revokeObjectURL(url); }
 }
 
-async function showClub(id) {
-  setSide("clubs");
-  const [c, e] = await Promise.all([api(`/api/club/${id}`), api(`/api/editclub/${id}`)]);
-  if (!c || !e) return;
-  const input = (key, value, cls = "num", extra = "") =>
-    `<input class="${cls}" data-key="${key}" value="${esc(value)}" ${extra}>`;
-  const pick = (key, value, kind) => input(key, value, "", `list="dl-${kind}" data-pick="${kind}"`);
-  const colourSelect = (k, v) => `<select data-key="colours.${k}" class="colour">${
-    [{id: -2, name: "None", rgb: ""}, ...e.colour_list].map(x =>
-      `<option value="${x.id}"${x.id === v ? " selected" : ""} data-rgb="${x.rgb}">${esc(x.name)}</option>`).join("")}</select>
-    <span class="swatch"></span>`;
-  const kits = ["Home foreground", "Home background", "Away foreground", "Away background", "Third foreground",
-                "Third background"];
-  main.innerHTML = `<div class="heading">${c.has_picture ? `<img src="${pictureUrl("badge", c.picture)}">` : ""}${esc(c.name)}</div>
-    <div class="bar"><button class="btn" id="back">Back</button><button class="btn" id="apply">Apply changes</button>
-      <span class="note" id="emsg"></span></div>
-    <div class="record">
-    <div class="panel"><h3>Club</h3><table class="form">
-      <tr><td>Name</td><td>${input("name", e.name, "", `maxlength="50"${e.name_locked ? " disabled" : ""}`)}</td></tr>
-      <tr><td>Short name</td><td>${input("short", e.short, "", 'maxlength="25"')}</td></tr>
-      <tr><td>Nation</td><td>${pick("nation", e.nation_name, "nation")}</td></tr>
-      <tr><td>Division</td><td>${pick("division", e.division_name, "comp")}</td></tr>
-      <tr><td>Last division</td><td>${pick("last_division", e.last_division_name, "comp")}</td></tr>
-      <tr><td>Status</td><td><select data-key="status">${Object.entries(e.statuses).map(([k, v]) =>
-        `<option value="${k}"${+k === e.status ? " selected" : ""}>${esc(v)}</option>`).join("")}</select></td></tr>
-      <tr><td>National team</td><td class="v">${c.national ? "Yes" : "No"}</td></tr>
-      <tr><td>Id</td><td class="v">${c.id}</td></tr></table>
-      ${e.name_locked ? `<p class="note">${esc(e.name_locked[0].toUpperCase() + e.name_locked.slice(1))}.</p>` : ""}
-      <p class="note">An amateur club in a division that the game plays starts as semi-professional.</p>
-      <datalist id="dl-nation"></datalist><datalist id="dl-comp"></datalist>
-      <datalist id="dl-stadium"></datalist><datalist id="dl-club"></datalist></div>
-    ${picturePanel("badge", c.picture, c.has_picture)}
-    <div class="panel"><h3>Ground and finance</h3><table class="form">
-      <tr><td>Stadium</td><td>${pick("stadium", e.stadium_name, "stadium")}</td></tr>
-      <tr><td>Average attendance</td><td>${input("attendance.0", e.attendance[0])}</td></tr>
-      <tr><td>Minimum attendance</td><td>${input("attendance.1", e.attendance[1])}</td></tr>
-      <tr><td>Maximum attendance</td><td>${input("attendance.2", e.attendance[2])}</td></tr>
-      <tr><td>Training facilities (1 to 20)</td><td>${input("training", e.training)}</td></tr>
-      <tr><td>Reputation (1 to 10000)</td><td>${input("reputation", e.reputation)}</td></tr>
-      <tr><td>Bank balance (£)</td><td>${input("balance", e.balance, "", 'inputmode="numeric"')}</td></tr></table></div>
-    <div class="panel"><h3>Colours</h3><table class="form">${kits.map((k, i) =>
-      `<tr><td>${k}</td><td>${colourSelect(i, e.colours[i])}</td></tr>`).join("")}</table></div>
-    <div class="panel"><h3>Rivals</h3><table class="form">${[0, 1, 2].map(i =>
-      `<tr><td>Rival ${i + 1}</td><td>${pick(`rivals.${i}`, e.rival_names[i], "club")}</td></tr>`).join("")}</table></div>
-    </div>`;
-  document.getElementById("back").onclick = () => history.back();
-  wirePicture("badge", c.picture);
-  for (const el of main.querySelectorAll("select.colour")) {
-    const paint = () => { const rgb = el.selectedOptions[0].dataset.rgb;
-      el.nextElementSibling.style.background = rgb || "transparent"; };
-    el.onchange = paint; paint();
-  }
-  const ids = wirePicks({nation: "/api/nations?q=", comp: "/api/comps?q=", stadium: "/api/stadiums?q=", club: "/api/clubs?q="});
-  document.getElementById("apply").onclick = async () => {
-    const ch = {attendance: [], colours: [], rivals: e.rivals.slice()};
-    const msg = document.getElementById("emsg");
-    for (const el of main.querySelectorAll("[data-key]")) {
-      const k = el.dataset.key, v = el.value;
-      if (el.dataset.pick) {
-        if (!(k in ids)) continue;
-        if (ids[k] === undefined) { msg.textContent = `Pick ${k.replace(".", " ")} from the list.`; msg.className = "warn"; return; }
-        if (k.startsWith("rivals.")) ch.rivals[+k.slice(7)] = ids[k];
-        else ch[k] = ids[k];
-      } else if (k === "name" || k === "short") { if (!el.disabled) ch[k] = v; }
-      else if (k.includes(".")) { const [list, i] = k.split("."); ch[list][+i] = +v; }
-      else ch[k] = +v;
-    }
-    const r = await fetch(`/api/editclub/${id}`, {method: "POST", body: JSON.stringify(ch)});
-    const res = await r.json();
-    msg.textContent = r.ok ? "Changed. Save writes a new data set." : res.error;
-    msg.className = r.ok ? "note" : "warn";
-    if (r.ok) refreshSaveBar();
-  };
-}
-
-// Wires every [data-pick] input of the page to its search api; returns {key: picked id} (-1 for empty, undefined
-// for a text that is not in the list). Keys of untouched inputs are absent.
-function wirePicks(lists) {
-  const ids = {};
-  for (const el of main.querySelectorAll("[data-pick]")) {
-    const kind = el.dataset.pick, dl = document.getElementById(el.getAttribute("list"));
-    let found = [];
-    el.oninput = async () => {
-      const res = await api(lists[kind] + encodeURIComponent(el.value));
-      found = Array.isArray(res) ? res : (res ? res.rows : []);
-      dl.innerHTML = found.slice(0, 50).map(r => `<option value="${esc(r.name)}">`).join("");
-      const hit = found.find(r => r.name === el.value);
-      ids[el.dataset.key] = hit ? hit.id : (el.value === "" ? -1 : undefined);
-    };
-  }
-  return ids;
-}
-
-function jobSelect(key, value, jobs) {
-  return `<select data-key="${key}">${jobs.map((j, i) => `<option value="${i}"${i === value ? " selected" : ""}>${esc(j)}</option>`).join("")}</select>`;
-}
-
-async function showPerson(id) {
-  setSide("people");
-  const [p, e] = await Promise.all([api(`/api/person/${id}`), api(`/api/edit/${id}`)]);
-  if (!p || !e) return;
-  const pl = e.player;
-  const input = (key, value, cls = "num", extra = "") =>
-    `<input class="${cls}" data-key="${key}" value="${esc(value)}" ${extra}>`;
-  main.innerHTML = `<div class="heading">${esc(p.name)}</div>
-    <div class="bar"><button class="btn" id="back">Back</button><button class="btn" id="apply">Apply changes</button>
-      <span class="note" id="emsg"></span></div>
-    <div class="record">
-    <div class="panel"><h3>Person</h3><table class="form">
-      <tr><td>First name</td><td>${input("names.first", e.name_text.first, "", 'list="dl-first" data-pick="first"')}</td></tr>
-      <tr><td>Second name</td><td>${input("names.second", e.name_text.second, "", 'list="dl-second" data-pick="second"')}</td></tr>
-      <tr><td>Common name</td><td>${input("names.common", e.name_text.common, "", 'list="dl-common" data-pick="common"')}</td></tr>
-      <tr><td>Born</td><td>${input("born", e.born, "", 'type="date"')}</td></tr>
-      <tr><td>Nation</td><td>${input("nation", e.nation_name, "", 'list="dl-nation" data-pick="nation"')}</td></tr>
-      <tr><td>Second nation</td><td>${input("nation2", e.nation2_name, "", 'list="dl-nation" data-pick="nation"')}</td></tr>
-      <tr><td>Id</td><td class="v">${p.id}</td></tr></table>
-      <datalist id="dl-first"></datalist><datalist id="dl-second"></datalist><datalist id="dl-common"></datalist>
-      <datalist id="dl-nation"></datalist><datalist id="dl-club"></datalist>
-      <p class="note">Names come from the data's name tables: pick one from the list.</p></div>
-    ${picturePanel("face", p.picture, p.has_picture)}
-    <div class="panel"><h3>Contract</h3><table class="form">
-      <tr><td>Club</td><td>${input("club", e.club_name, "", 'list="dl-club" data-pick="club"')}</td></tr>
-      <tr><td>Job</td><td>${jobSelect("contract.job", e.contract.job, e.jobs)}</td></tr>
-      <tr><td>Joined</td><td>${input("contract.joined", e.contract.joined, "", 'type="date"')}</td></tr>
-      <tr><td>Expires</td><td>${input("contract.expires", e.contract.expires, "", 'type="date"')}</td></tr>
-      <tr><td>Wage (£ a week)</td><td>${input("contract.wage", e.contract.wage, "")}</td></tr>
-      <tr><td>Value (£)</td><td>${input("contract.value", e.contract.value, "", 'inputmode="numeric"')}</td></tr></table>
-      <p class="note">The rest of a contract (bonuses, clauses, squad status) is made by the game when a game starts.</p></div>
-    <div class="panel"><h3>International</h3><table class="form">
-      <tr><td>National team</td><td>${input("international.team", e.international.team_name, "", 'list="dl-club" data-pick="club"')}</td></tr>
-      <tr><td>Job</td><td>${jobSelect("international.job", e.international.job, e.jobs)}</td></tr>
-      <tr><td>Caps</td><td>${input("international.caps", e.international.caps)}</td></tr>
-      <tr><td>Goals</td><td>${input("international.goals", e.international.goals)}</td></tr></table></div>
-    <div class="panel"><h3>Personal (0 to 20)</h3><div class="grid2">${e.personal.map((x, i) =>
-      `<label>${esc(x.name)} ${input(`personal.${i}`, x.value)}</label>`).join("")}</div>
-      <p class="note">The game shows only Determination, in a player's profile. 0 is the value of most people in the data.</p></div>
-    ${pl ? `<div class="panel wide"><h3>Player</h3>
-      <div class="grid4">
-        <label>Current ability ${input("ca", pl.ca)}</label><label>Potential ability ${input("pa", pl.pa)}</label>
-        <label>Reputation 1 ${input("rep.0", pl.rep[0])}</label><label>Reputation 2 ${input("rep.1", pl.rep[1])}</label>
-        <label>Reputation 3 ${input("rep.2", pl.rep[2])}</label></div>
-      <h3 style="margin-top:12px">Positions (1 to 20)</h3><div class="grid4">${pl.positions.map((x, i) =>
-        `<label>${esc(x.name)} ${input(`positions.${i}`, x.value)}</label>`).join("")}</div>
-      <h3 style="margin-top:12px">Attributes (0 to 20, as the data stores them; Determination is under Personal)</h3><div class="grid3">${pl.attributes.map((x, i) =>
-        `<label>${esc(x.name)} ${input(`attributes.${i}`, x.value)}</label>`).join("")}</div>
-      <h3 style="margin-top:12px">Hidden attributes (0 to 20)</h3><div class="grid3">${pl.hidden.map((x, i) =>
-        `<label>${esc(x.name)} ${input(`hidden.${i}`, x.value)}</label>`).join("")}</div>
-      <details style="margin-top:10px"><summary>Other values of the player data, not named yet</summary><div class="grid4">${pl.other.map((x, i) =>
-        `<label>0x${x.offset.toString(16)} ${input(`other.${i}`, x.value)}</label>`).join("")}</div></details>
-      <p class="note">In the data 0 means random: the game fills it when a game starts. The game shows some attributes (Anticipation, Decisions, Dribbling, One On Ones, Penalties, Throw Ins and others) relative to the current ability, so its numbers can differ from these, as with the original editor.</p></div>` : ""}
-    </div>`;
-  document.getElementById("back").onclick = () => history.back();
-  wirePicture("face", p.picture);
-  const ids = wirePicks({first: "/api/names?t=first&q=", second: "/api/names?t=second&q=",
-                         common: "/api/names?t=common&q=", nation: "/api/nations?q=", club: "/api/clubs?q="});
-  document.getElementById("apply").onclick = async () => {
-    const ch = {names: {}, contract: {}, international: {},
-                personal: [], player: pl ? {rep: [], positions: [], attributes: [], hidden: [], other: []} : undefined};
-    const msg = document.getElementById("emsg");
-    for (const el of main.querySelectorAll("[data-key]")) {
-      const k = el.dataset.key, v = el.value;
-      if (el.dataset.pick) {
-        if (!(k in ids)) continue;                 // not touched
-        if (ids[k] === undefined) { msg.textContent = `Pick ${k} from the list.`; msg.className = "warn"; return; }
-        if (k.startsWith("names.")) ch.names[k.slice(6)] = ids[k];
-        else if (k === "international.team") ch.international.team = ids[k];
-        else ch[k] = ids[k];
-      } else if (k === "born") ch.born = v;
-      else if (k.startsWith("contract.")) { const f = k.slice(9); ch.contract[f] = f === "joined" || f === "expires" ? v : +v; }
-      else if (k.startsWith("international.")) ch.international[k.slice(14)] = +v;
-      else if (k === "ca" || k === "pa") ch.player[k] = +v;
-      else if (k.startsWith("personal.")) ch.personal[+k.slice(9)] = +v;
-      else { const [list, i] = k.split("."); ch.player[list][+i] = +v; }
-    }
-    const r = await fetch(`/api/edit/${id}`, {method: "POST", body: JSON.stringify(ch)});
-    const res = await r.json();
-    msg.textContent = r.ok ? "Changed. Save writes a new data set." : res.error;
-    msg.className = r.ok ? "note" : "warn";
-    if (r.ok) refreshSaveBar();
-  };
-}
-
 async function refreshSaveBar() {
   const i = await api("/api/info");
   const bar = document.getElementById("savebar");
-  bar.style.display = i && (i.changed || i.changed_clubs) ? "flex" : "none";
-  document.getElementById("savecount").textContent = i ? `${i.changed} person(s) and ${i.changed_clubs} club(s) changed.` : "";
+  bar.style.display = i && i.changed ? "flex" : "none";
+  document.getElementById("savecount").textContent = i ? `${i.changed} record(s) changed.` : "";
   if (!info.pictures) document.getElementById("savego").disabled = true;
 }
 
@@ -432,13 +382,10 @@ async function showPictures() {
 function route() {
   const [view, arg] = location.hash.slice(1).split("/");
   setTimeout(refreshSaveBar, 0);
-  if (view === "club") return showClub(arg);
-  if (view === "person") return showPerson(arg);
   if (view === "pictures") return showPictures();
-  return showList(views[view] ? view : "clubs");
+  const kind = info.tables.some(t => t.key === view) ? view : "club";
+  return arg !== undefined && arg !== "" ? showRecord(kind, arg) : showList(kind);
 }
-views.clubs.open = c => { location.hash = `club/${c.id}`; };
-views.people.open = p => { location.hash = `person/${p.id}`; };
 for (const b of document.querySelectorAll("#side button")) b.onclick = () => { location.hash = b.dataset.view; };
 window.onhashchange = route;
 
@@ -452,7 +399,9 @@ document.getElementById("savego").onclick = async () => {
 };
 
 (async () => {
-  info = await api("/api/info") || {};
+  info = await api("/api/info") || {tables: []};
+  const c = await api("/api/list/colour?q=");
+  colours = c ? c.rows.map(r => [r.id, r.name, "#" + r.cols.map(x => (+x).toString(16).padStart(2, "0")).join("")]) : [];
   document.getElementById("info").innerHTML = `Data:<br>${esc(info.data)}<br><br>Pictures:<br>${esc(info.pictures || "-")}`;
   route();
 })();
