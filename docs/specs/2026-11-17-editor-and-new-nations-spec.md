@@ -86,7 +86,30 @@ The player data, as the game reads it (`staff_compute_player_attribute` `0x54354
 Done. The club contract and the national team of a person, in the staff row (format 1 and 2): international caps 0x22 and goals 0x23 (bytes), national team 0x24 (a club id of `nat_club.dat`), national job 0x28, club 0x39, club job 0x3d, joined 0x3e and expires 0x46 (dates), wage 0x4e (i32, pounds a week) and value 0x52 (i32, pounds). The jobs 0 to 17 are those of `database_get_job_name` `0x53ad00` (jump table `0x53b384`): Unemployed, Chairman, Managing Director, General Manager, Director Of Football, Manager, Assistant Manager, Reserve Team Manager, Coach, Scout, Physio, Player, Player/Manager, Player/Assistant Manager, (14: no name), Player/Coach, Retired Player, Media Pundit. Bonuses, clauses and squad status are not in the data: the game makes them when a game starts. Checked: Thierry Henry's wage set to 25,000, expires to 30.6.2006 and caps to 40; a new game on that data set shows the three on the Contract tab.
 
 ### 2c. Editor: clubs
-Blocked by: 2b. The fields to find in the code first.
+Done. A club's page edits the name, short name, nation, division and last division, status, stadium, the three attendances, training facilities, reputation, bank balance, the six colours (with a swatch each) and three rivals. Save as writes them with the people's changes.
+
+The club row (`club.dat` and `nat_club.dat`, 581 bytes; `include/database.h` `struct club`): name at 4 (51 bytes), short name at 0x38 (26), and these ids and values:
+
+| Offset | Field | Read from |
+|---|---|---|
+| 0x53 | nation (id of `nation.dat`) | `struct club` |
+| 0x57, 0x5b | division, last division (ids of table 12, the club comps) | `struct club` |
+| 0x64 | status: 1 Professional, 2 Semi-Professional, 3 Amateur | the info tab `0x460ec6`; `Finance::init_for_club` makes an amateur club of a division that the game plays semi-professional (`0x596280`) |
+| 0x65 | bank balance, i32, pounds | `Finance::init_for_club` `0x5961d0` |
+| 0x69 | stadium (id of `stadium.dat`, table 5, name at 4) | `struct club`; the info tab shows its name |
+| 0x73, 0x77, 0x7b | average, minimum, maximum attendance, i32 | the crowd estimate `0x85d52c` |
+| 0x7f | training facilities, 1 to 20 | the info tab's Training Ground text `0x461506` |
+| 0x80 | reputation, i16, 1 to 10000 | `struct club` (the reader makes 0 into 1) |
+| 0x83 | six colours (ids of `colour.dat`, table 2: name at 4, RGB at 55): home foreground and background, then away, then third | `struct club`; Arsenal: White on Red 1, as its heading |
+| 0xb3 | three club ids, the data's rivals (Arsenal: Tottenham Hotspur, Chelsea, Manchester United) | `struct club`; their use in the game is not read yet |
+
+An empty id is -2, as in the data. The data also holds negative ids of records that this data set lacks; the editor keeps any id that is not changed.
+
+Key names: at the load the game finds some clubs, nations, comps and colours by name (`match_club_key_id` `0x6146b0` for the clubs, `_stricmp` `0x951c50`) and keeps their rows in key ids; a key id that stays unset stops the load with the box "index.cpp 5809" (`report_missing_key_id` `0x60d780`). So the name of a club that the game finds by name cannot change, and no club takes such a name. The editor reads the names from the player's `cm0102.exe` next to the Data folder, through `src/cm3/key_ids_table.c`; with no exe, club names cannot change.
+
+Not named yet: 0x37, 0x52, 0x5f, 0x60 (a club comp id), 0x6d, 0x6e (a second stadium id), 0x72, 0x82.
+
+Checked: Arsenal set to Amateur, stadium Wembley, training facilities 3 and balance -5,000,000; a new game on that data set shows Semi-Professional (as above), Wembley, London, 78000 (all seated), Awful facilities and Finances Ok. Renaming Aston Villa stops the load at index.cpp 5809, so the editor refuses it.
 ### 3. Read the original for B (Q1, Q2)
 Blocked by: the build files.
 ### 4. Custom league with one division

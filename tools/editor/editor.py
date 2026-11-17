@@ -15,7 +15,8 @@ game looks for, a picture (PNG, made by the page from PNG, SVG, WebP or JPEG) sa
 Pictures page it converts the picture files that are not PNG and renames the PNG files whose name matches no
 record. It never deletes a file.
 
-It edits people: names, birth date, nations, the club contract (club, job, joined, expires, wage, value), the
+It edits clubs: names, nation, divisions, status, balance, stadium, attendances, training facilities, reputation,
+colours and rivals. It edits people: names, birth date, nations, the club contract (club, job, joined, expires, wage, value), the
 national team, and for a player the abilities, reputations, positions and attributes, as the data stores them. The changes stay in memory until Save, which writes the whole data set into
 a new folder <user folder>/Databases/<name>, which the game plays as a custom database. The opened data folder
 is never written.
@@ -36,6 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "seasons", "own_db"))
 import cmdb  # noqa: E402
 import cmdb1  # noqa: E402
+import key_names  # noqa: E402
 
 PICTURE_FOLDERS = {"badge": "badges", "face": "faces"}
 NAME_TABLES = {"first": 13, "second": 14, "common": 15}
@@ -65,6 +67,20 @@ ATTRIBUTES = [("Acceleration", 0x1B), ("Aggression", 0x1C), ("Agility", 0x1D), (
               ("Reflexes", 0x3A), ("Set Pieces", 0x29), ("Stamina", 0x3C), ("Strength", 0x3D), ("Tackling", 0x3E),
               ("Teamwork", 0x3F), ("Technique", 0x40), ("Work Rate", 0x44)]
 P_OTHER = [o for o in range(0x1B, 0x46) if o not in {a[1] for a in ATTRIBUTES}]   # the bytes not yet named
+
+# The club row (club.dat and nat_club.dat, 581 bytes; include/database.h struct club, and the code that reads it).
+C_NAME, C_SHORT, C_NATION, C_DIVISION, C_LAST_DIVISION = 0x04, 0x38, 0x53, 0x57, 0x5B
+C_STATUS = 0x64          # 1 Professional, 2 Semi-Professional, 3 Amateur (the info tab, 0x460ec6); Finance::init_for_club
+                         # makes an amateur club of a division that the game plays semi-professional (0x596280)
+C_BALANCE = 0x65         # i32, pounds (Finance::init_for_club 0x5961d0)
+C_STADIUM = 0x69         # a stadium id
+C_ATTENDANCE = (0x73, 0x77, 0x7B)   # i32: average, minimum, maximum (crowd estimate, 0x85d52c..0x85d56a)
+C_TRAINING = 0x7F        # 1 to 20, with the reputation the info tab's training ground text (0x461506)
+C_REPUTATION = 0x80      # i16, 1 to 10000 (the reader makes 0 into 1)
+C_COLOURS = 0x83         # 6 colour ids: home foreground and background, then away, then third
+C_RIVALS = 0xB3          # 3 club ids
+NONE = -2                # an empty id field of the club row
+STATUSES = {1: "Professional", 2: "Semi-Professional", 3: "Amateur"}
 MAX_PICTURE = 8 * 1024 * 1024
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 PAGE_SIZE = 200
@@ -98,6 +114,19 @@ class Data:
                 i, nation = struct.unpack_from("<i", r, 0)[0], struct.unpack_from("<i", r, 0x53)[0]
                 self.clubs[i] = dict(id=i, name=cmdb.cstr(r, 4, 51), short=cmdb.cstr(r, 0x38, 26), nation=nation,
                                      national=t == 1)
+        self.club_rows = {}
+        for t in (0, 1):
+            for r in F.rows(t):
+                self.club_rows[struct.unpack_from("<i", r, 0)[0]] = r
+        self.stadiums = {struct.unpack_from("<i", r, 0)[0]: dict(id=struct.unpack_from("<i", r, 0)[0],
+                                                                 name=cmdb.cstr(r, 4, 51)) for r in F.rows(5)}
+        self.comps = {struct.unpack_from("<i", r, 0)[0]: dict(id=struct.unpack_from("<i", r, 0)[0],
+                                                              name=cmdb.cstr(r, 4, 51)) for r in F.rows(12)}
+        self.colours = [dict(id=struct.unpack_from("<i", r, 0)[0], name=cmdb.cstr(r, 4, 51),
+                             rgb="#%02x%02x%02x" % tuple(r[55:58])) for r in F.rows(2)]
+        self.changed_clubs = set()
+        exe = os.path.join(os.path.dirname(os.path.abspath(path)), "cm0102.exe")
+        self.club_keys = key_names.load(exe, "club") if os.path.exists(exe) else None   # None: no game file
         staff, _ = (cmdb1 if fmt == 1 else cmdb).staff_view(F)
         self.people = {}
         for s in staff:
@@ -245,9 +274,102 @@ class Data:
                  nation=i32(S_NATION), club=i32(S_CLUB))
         p["name"] = common or f"{first} {second}".strip()
 
+    def club_edit_view(self, cid):
+        r = self.club_rows.get(cid)
+        if r is None:
+            return None
+        i32 = lambda o: struct.unpack_from("<i", r, o)[0]  # noqa: E731
+        name_of = lambda table, i: table.get(i, {}).get("name", "")  # noqa: E731
+        name = cmdb.cstr(r, C_NAME, 51)
+        return dict(id=cid, name=name, short=cmdb.cstr(r, C_SHORT, 26), name_locked=self.club_name_locked(name),
+                    nation=i32(C_NATION), nation_name=name_of(self.nations, i32(C_NATION)),
+                    division=i32(C_DIVISION), division_name=name_of(self.comps, i32(C_DIVISION)),
+                    last_division=i32(C_LAST_DIVISION), last_division_name=name_of(self.comps, i32(C_LAST_DIVISION)),
+                    status=r[C_STATUS], statuses=STATUSES, balance=i32(C_BALANCE),
+                    stadium=i32(C_STADIUM), stadium_name=name_of(self.stadiums, i32(C_STADIUM)),
+                    attendance=[i32(o) for o in C_ATTENDANCE], training=r[C_TRAINING],
+                    reputation=struct.unpack_from("<h", r, C_REPUTATION)[0],
+                    colours=[i32(C_COLOURS + 4 * k) for k in range(6)], colour_list=self.colours,
+                    rivals=[i32(C_RIVALS + 4 * k) for k in range(3)],
+                    rival_names=[name_of(self.clubs, i32(C_RIVALS + 4 * k)) for k in range(3)])
+
+    def club_name_locked(self, name):
+        """The text why the name of a club cannot change, or None."""
+        if self.club_keys is None:
+            return "the names cannot change: cm0102.exe is not next to the Data folder, so the key names are unknown"
+        if name.lower() in self.club_keys:
+            return "the game finds this club by its name, so the name stays"
+        return None
+
+    def apply_club(self, cid, ch):
+        """Writes the changes ch (as club_edit_view gives them) into the club row. Returns an error text or None."""
+        r = self.club_rows.get(cid)
+        if r is None:
+            return "no such club"
+        put = lambda fmt, o, v: struct.pack_into(fmt, r, o, v)  # noqa: E731
+        if "name" in ch and ch["name"] != cmdb.cstr(r, C_NAME, 51):
+            if err := self.club_name_locked(cmdb.cstr(r, C_NAME, 51)):
+                return err
+            if ch["name"].lower() in self.club_keys:
+                return "the game finds a club by that name: pick another name"
+        for k, o, n in (("name", C_NAME, 51), ("short", C_SHORT, 26)):
+            if k in ch:
+                try:
+                    b = ch[k].encode("latin-1")
+                except UnicodeEncodeError:
+                    return f"the {k} has a letter that the game cannot show"
+                if not b or len(b) >= n:
+                    return f"the {k} must have 1 to {n - 1} letters"
+                r[o:o + n] = b + bytes(n - len(b))
+        def put_id(o, v, table, what):
+            """An id field: unchanged values stay as they are (the data has negative ids of records it lacks);
+            an emptied one becomes NONE, as in the data."""
+            i = NONE if int(v) in (-1, NONE) else int(v)
+            if i != struct.unpack_from("<i", r, o)[0]:
+                if i != NONE and i not in table:
+                    return f"no {what} {i}"
+                put("<i", o, i)
+            return None
+
+        for k, o, table in (("nation", C_NATION, self.nations), ("division", C_DIVISION, self.comps),
+                            ("last_division", C_LAST_DIVISION, self.comps), ("stadium", C_STADIUM, self.stadiums)):
+            if k in ch and (err := put_id(o, ch[k], table, k.replace("_", " "))):
+                return err
+        if "status" in ch:
+            if int(ch["status"]) not in STATUSES:
+                return "no such status"
+            r[C_STATUS] = int(ch["status"])
+        if "balance" in ch:
+            put("<i", C_BALANCE, int(ch["balance"]))
+        for o, v in zip(C_ATTENDANCE, ch.get("attendance", [])):
+            if not 0 <= int(v) <= 200000:
+                return "an attendance must be 0 to 200000"
+            put("<i", o, int(v))
+        if "training" in ch:
+            if not 1 <= int(ch["training"]) <= 20:
+                return "training facilities must be 1 to 20"
+            r[C_TRAINING] = int(ch["training"])
+        if "reputation" in ch:
+            if not 1 <= int(ch["reputation"]) <= 10000:
+                return "the reputation must be 1 to 10000"
+            put("<h", C_REPUTATION, int(ch["reputation"]))
+        colours = {c["id"]: c for c in self.colours}
+        for k, v in enumerate(ch.get("colours", [])[:6]):
+            if err := put_id(C_COLOURS + 4 * k, v, colours, "colour"):
+                return err
+        for k, v in enumerate(ch.get("rivals", [])[:3]):
+            if err := put_id(C_RIVALS + 4 * k, v, self.clubs, "club"):
+                return err
+        c = self.clubs[cid]
+        c.update(name=cmdb.cstr(r, C_NAME, 51), short=cmdb.cstr(r, C_SHORT, 26),
+                 nation=struct.unpack_from("<i", r, C_NATION)[0])
+        self.changed_clubs.add(cid)
+        return None
+
     def save(self, folder):
         cmdb1.write_folder(self.folder, folder, {f: len(b) for f, b in self.folder.raw.items()})
         self.changed.clear()
+        self.changed_clubs.clear()
 
     def badge_name(self, club):
         return file_name(club["name"])
@@ -346,7 +468,15 @@ def make_handler(data, pictures):
             if url.path == "/api/info":
                 return self.send(200, dict(data=data.folder.path, pictures=pictures.user or "",
                                            clubs=len(data.clubs), nations=len(data.nations),
-                                           people=len(data.people), changed=len(data.changed)))
+                                           people=len(data.people), changed=len(data.changed),
+                                           changed_clubs=len(data.changed_clubs)))
+            if url.path == "/api/stadiums":
+                return self.send(200, search(data.stadiums.values(), arg("q"), ("name",), offset))
+            if url.path == "/api/comps":
+                return self.send(200, search(data.comps.values(), arg("q"), ("name",), offset))
+            if url.path.startswith("/api/editclub/"):
+                v = data.club_edit_view(int(url.path.rsplit("/", 1)[1] or -1))
+                return self.send(200, v) if v else self.send(404, {})
             if url.path == "/api/names":
                 table = data.names.get(arg("t"), {})
                 text = arg("q").strip().lower()
@@ -428,6 +558,14 @@ def make_handler(data, pictures):
                 except (ValueError, TypeError) as e:
                     err = str(e)
                 return self.send(400, dict(error=err)) if err else self.send(200, data.edit_view(pid))
+            if url.path.startswith("/api/editclub/"):
+                cid = int(url.path.rsplit("/", 1)[1] or -1)
+                ch = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0") or 0)) or b"{}")
+                try:
+                    err = data.apply_club(cid, ch)
+                except (ValueError, TypeError) as e:
+                    err = str(e)
+                return self.send(400, dict(error=err)) if err else self.send(200, data.club_edit_view(cid))
             if url.path == "/api/save" and pictures.user:
                 name = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0") or 0)) or b"{}").get("name", "")
                 if not name or name.strip() != name or any(c in name for c in '/\\:*?"<>|') or name in (".", ".."):
