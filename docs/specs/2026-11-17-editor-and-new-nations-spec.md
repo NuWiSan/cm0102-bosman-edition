@@ -1,6 +1,6 @@
 # Editor for every system, and new playable nations (fork NuWiSan)
 
-Status: research. Fork `NuWiSan/cm0102-bosman-edition`.
+Status: editor slice 1 done (`tools/editor/`); the rest is research. Fork `NuWiSan/cm0102-bosman-edition`.
 
 Two features that depend on each other: a database editor that runs on Linux, Mac and Windows, and new nations in the League table, Switzerland first. Upstream keeps "competition structure changes of any kind" out of 0.8.0, so both are fork work.
 
@@ -75,8 +75,8 @@ One generic league object, configured by a file in the database folder, in place
 
 ## Slices
 
-### 1. Editor: read and show (clubs, people, nations)
-Blocked by: none (needs a database folder; the free release's `Data` folder is enough).
+### 1. Editor: read and show (clubs, people, nations), pictures
+Done. `python3 tools/editor/editor.py <Data folder> --pictures <the game's user folder>` serves the page on `127.0.0.1:8102` and opens it. Clubs, people and nations with search; a record page per club and person; the pictures: each record's badge or face at the game's sizes, the file name that the game looks for (the game's own key: `Ashley Cole 20-12-1980`, checked against the game, also in a leap year), and a new picture from PNG, SVG, WebP or JPEG, made into a PNG by the page and saved under that name. The Pictures page lists the files that the game shows, the PNG files that match no record and the files that are not PNG. Format 1 (3.9.68) and format 2 staff tables. The data folder is not written.
 ### 2. Editor: edit and save a copy, with checks
 Blocked by: 1.
 ### 3. Read the original for B (Q1, Q2)

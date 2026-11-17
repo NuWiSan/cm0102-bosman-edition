@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CM 01/02 Editor</title>
+<style>
+  :root {
+    --navy: #10106a; --navy2: #1c1c8c; --purple: #20006a; --red: #d80000; --yellow: #f8f800;
+    --grey: #a0a0a0; --panel: rgba(8, 8, 24, 0.82); --line: #2c2c48; --white: #f0f0f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: flex; color: var(--white); font: 14px "Trebuchet MS", Tahoma, sans-serif;
+    background: #050510 radial-gradient(ellipse at 60% 30%, #1a1a2c 0%, #050510 70%);
+  }
+  #side { width: 150px; background: linear-gradient(#141488, #0a0a50); border-right: 2px solid #000;
+    display: flex; flex-direction: column; padding: 8px 6px; gap: 6px; }
+  #side .brand { color: var(--yellow); text-align: center; font-weight: bold; padding: 8px 0 12px; line-height: 1.3; }
+  #side button { background: linear-gradient(#20209a, #10106a); border: 1px solid #000; color: var(--white);
+    padding: 12px 6px; font: inherit; cursor: pointer; }
+  #side button.on { color: var(--yellow); outline: 1px solid var(--yellow); }
+  #side .info { margin-top: auto; color: var(--grey); font-size: 11px; word-break: break-all; }
+  #main { flex: 1; display: flex; flex-direction: column; padding: 10px 12px; gap: 8px; min-width: 0; }
+  .heading { background: var(--red); border: 1px solid #000; box-shadow: inset 0 -3px 0 rgba(0,0,0,.35);
+    min-height: 58px; display: flex; align-items: center; justify-content: center; gap: 12px;
+    font-size: 26px; font-weight: bold; text-shadow: 2px 2px 0 #600; padding: 4px 12px; }
+  .heading img { height: 46px; }
+  .bar { display: flex; gap: 6px; align-items: center; }
+  .bar input { flex: 1; background: #d8d8d8; border: 1px solid #000; padding: 6px 8px; font: inherit; }
+  .btn { background: linear-gradient(#c8c8c8, #8c8c8c); border: 1px solid #000; color: #000; padding: 6px 14px;
+    font: inherit; cursor: pointer; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .tabhead { background: var(--panel); border: 1px solid var(--line); padding: 6px 10px; color: var(--yellow);
+    text-align: center; font-weight: bold; font-size: 16px; }
+  .list { flex: 1; overflow: auto; background: var(--panel); border: 1px solid var(--line); }
+  table { width: 100%; border-collapse: collapse; }
+  th { position: sticky; top: 0; background: linear-gradient(#c8c8c8, #8c8c8c); color: #000; font-weight: normal;
+    padding: 4px 6px; text-align: left; border: 1px solid #000; }
+  td { padding: 3px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td.v { color: var(--yellow); }
+  tr.row { cursor: pointer; }
+  tr.row:hover td { background: rgba(80, 80, 200, .25); }
+  .mini { width: 18px; height: 18px; object-fit: contain; vertical-align: middle; }
+  .dot { display: inline-block; width: 8px; height: 8px; border: 1px solid #000; vertical-align: middle; }
+  .dot.yes { background: #3c3; } .dot.no { background: #555; }
+  .record { flex: 1; overflow: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); padding: 10px 12px; }
+  .panel h3 { margin: 0 0 8px; color: var(--yellow); font-size: 15px; }
+  .fields td:first-child { color: var(--white); width: 40%; }
+  .sizes { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin: 8px 0; }
+  .sizes div { text-align: center; color: var(--grey); font-size: 11px; }
+  .frame { width: 86px; height: 107px; border: 1px solid #c8c8d2; background: #10004a; overflow: hidden; }
+  .frame img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .onbar { background: var(--red); padding: 4px 8px; }
+  .onbar img { height: 46px; display: block; }
+  code { color: var(--yellow); word-break: break-all; }
+  .note { color: var(--grey); font-size: 12px; }
+  .warn { color: #ff8060; }
+  .pager { display: flex; gap: 6px; align-items: center; color: var(--grey); }
+</style>
+</head>
+<body>
+<div id="side">
+  <div class="brand">CM 01/02<br>Editor</div>
+  <button data-view="clubs">Clubs</button>
+  <button data-view="people">People</button>
+  <button data-view="nations">Nations</button>
+  <button data-view="pictures">Pictures</button>
+  <div class="info" id="info"></div>
+</div>
+<div id="main"></div>
+<script>
+"use strict";
+const main = document.getElementById("main");
+let info = {};
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const api = async (path, opts) => { const r = await fetch(path, opts); return r.ok ? r.json() : null; };
+const pictureUrl = (kind, name) => `/api/picture?kind=${kind}&name=${encodeURIComponent(name)}&t=${Date.now()}`;
+const dmy = iso => iso ? iso.split("-").reverse().map(Number).join(".") : "";
+
+const views = {
+  clubs: {title: "Clubs", kind: "badge", api: "/api/clubs",
+    head: ["", "Name", "Short name", "Nation", "Badge"],
+    row: c => [c.has_picture ? `<img class="mini" src="${pictureUrl("badge", c.picture)}">` : "",
+               esc(c.name), esc(c.short), esc(c.nation_name), `<span class="dot ${c.has_picture ? "yes" : "no"}"></span>`],
+    open: c => showClub(c.id)},
+  people: {title: "People", kind: "face", api: "/api/people",
+    head: ["Name", "Born", "Nation", "Club", "Face"],
+    row: p => [esc(p.name), dmy(p.born), esc(p.nation_name), esc(p.club_name),
+               `<span class="dot ${p.has_picture ? "yes" : "no"}"></span>`],
+    open: p => showPerson(p.id)},
+  nations: {title: "Nations", api: "/api/nations", head: ["Name", "Short name"],
+    row: n => [esc(n.name), esc(n.short)], open: null},
+};
+
+function setSide(view) {
+  for (const b of document.querySelectorAll("#side button")) b.classList.toggle("on", b.dataset.view === view);
+}
+
+async function showList(view, q = "", offset = 0) {
+  setSide(view);
+  const v = views[view];
+  main.innerHTML = `<div class="heading">${v.title}</div>
+    <div class="bar"><input id="q" placeholder="Search" value="${esc(q)}"><button class="btn" id="go">Search</button></div>
+    <div class="list" id="list"></div><div class="pager" id="pager"></div>`;
+  const input = document.getElementById("q");
+  const run = (o = 0) => showList(view, input.value, o);
+  document.getElementById("go").onclick = () => run();
+  input.onkeydown = e => { if (e.key === "Enter") run(); };
+  input.focus();
+  const res = await api(`${v.api}?q=${encodeURIComponent(q)}&offset=${offset}`);
+  if (!res) return;
+  const list = document.getElementById("list");
+  list.innerHTML = `<table><tr>${v.head.map(h => `<th>${h}</th>`).join("")}</tr>${res.rows.map((r, i) =>
+    `<tr class="row" data-i="${i}">${v.row(r).map((c, k) => `<td${k ? ' class="v"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</table>`;
+  if (v.open) for (const tr of list.querySelectorAll("tr.row")) tr.onclick = () => v.open(res.rows[+tr.dataset.i]);
+  const pager = document.getElementById("pager");
+  const last = Math.min(res.offset + res.rows.length, res.total);
+  pager.innerHTML = `<span>${res.total ? res.offset + 1 : 0}–${last} of ${res.total}</span>` +
+    (res.offset > 0 ? `<button class="btn" id="prev">Previous</button>` : "") +
+    (last < res.total ? `<button class="btn" id="next">Next</button>` : "");
+  const prev = document.getElementById("prev"), next = document.getElementById("next");
+  if (prev) prev.onclick = () => run(Math.max(0, res.offset - res.rows.length));
+  if (next) next.onclick = () => run(last);
+}
+
+function fieldsTable(rows) {
+  return `<table class="fields">${rows.map(([k, v]) => `<tr><td>${k}</td><td class="v">${v}</td></tr>`).join("")}</table>`;
+}
+
+/* The picture panel: the file name that the game looks for, the picture at the game's sizes, and a new one from
+   a PNG, SVG, WebP or JPEG file, made into a PNG here and saved under that name. */
+function picturePanel(kind, name, has) {
+  const folder = kind === "badge" ? "badges" : "faces";
+  const shown = has ? pictureUrl(kind, name) : "";
+  const sizes = kind === "badge"
+    ? `<div><div class="onbar"><img id="p1" src="${shown}" ${has ? "" : 'style="visibility:hidden"'}></div>Heading</div>
+       <div><img id="p2" class="mini" src="${shown}" ${has ? "" : 'style="visibility:hidden"'}><br>List</div>`
+    : `<div><div class="frame"><img id="p1" src="${shown}" ${has ? "" : 'style="visibility:hidden"'}></div>Frame</div>`;
+  return `<div class="panel"><h3>${kind === "badge" ? "Badge" : "Face"}</h3>
+    <div class="note">The game looks for</div><code>${folder}/${esc(name)}.png</code>
+    <div class="sizes">${sizes}</div>
+    <div class="${has ? "note" : "warn"}" id="pstate">${has ? "Found: the game shows it." : "No picture yet."}</div>
+    ${info.pictures ? `<div class="bar" style="margin-top:8px">
+      <input type="file" id="pfile" accept=".png,.svg,.webp,.jpg,.jpeg,image/png,image/svg+xml,image/webp,image/jpeg">
+      <button class="btn" id="psave" disabled>Save</button></div>
+      <div class="note">PNG, SVG, WebP or JPEG; saved as PNG with the name above.</div>`
+    : `<div class="warn">Start the editor with --pictures &lt;the game's user folder&gt; to save pictures.</div>`}</div>`;
+}
+
+function wirePicture(kind, name) {
+  const file = document.getElementById("pfile"), save = document.getElementById("psave");
+  if (!file) return;
+  let blob = null;
+  file.onchange = async () => {
+    blob = file.files[0] ? await toPng(file.files[0]) : null;
+    save.disabled = !blob;
+    if (!blob) { document.getElementById("pstate").textContent = "This file could not be read."; return; }
+    const url = URL.createObjectURL(blob);
+    for (const id of ["p1", "p2"]) { const im = document.getElementById(id); if (im) { im.src = url; im.style.visibility = ""; } }
+    document.getElementById("pstate").textContent = "Preview: Save writes it.";
+    document.getElementById("pstate").className = "note";
+  };
+  save.onclick = async () => {
+    const res = await api(`/api/picture?kind=${kind}&name=${encodeURIComponent(name)}`, {method: "POST", body: blob});
+    document.getElementById("pstate").textContent = res ? `Saved as ${res.saved}.` : "Could not save.";
+    document.getElementById("pstate").className = res ? "note" : "warn";
+    save.disabled = !!res;
+  };
+}
+
+/* Any picture file the browser reads, as a PNG blob; an SVG without a size is drawn 512 high. */
+async function toPng(f) {
+  const url = URL.createObjectURL(f);
+  try {
+    const img = new Image();
+    await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; img.src = url; });
+    let w = img.naturalWidth || 512, h = img.naturalHeight || 512;
+    if (f.type === "image/svg+xml" || /\.svg$/i.test(f.name)) { const k = 512 / h; w = Math.round(w * k); h = 512; }
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").drawImage(img, 0, 0, w, h);
+    return await new Promise(ok => c.toBlob(ok, "image/png"));
+  } catch (e) { return null; } finally { URL.revokeObjectURL(url); }
+}
+
+async function showClub(id) {
+  setSide("clubs");
+  const c = await api(`/api/club/${id}`);
+  if (!c) return;
+  main.innerHTML = `<div class="heading">${c.has_picture ? `<img src="${pictureUrl("badge", c.picture)}">` : ""}${esc(c.name)}</div>
+    <div class="bar"><button class="btn" id="back">Back</button></div>
+    <div class="record"><div class="panel"><h3>Club</h3>${fieldsTable([
+      ["Name", esc(c.name)], ["Short name", esc(c.short)], ["Nation", esc(c.nation_name)],
+      ["National team", c.national ? "Yes" : "No"], ["Id", c.id]])}</div>
+      ${picturePanel("badge", c.picture, c.has_picture)}</div>`;
+  document.getElementById("back").onclick = () => history.back();
+  wirePicture("badge", c.picture);
+}
+
+async function showPerson(id) {
+  setSide("people");
+  const p = await api(`/api/person/${id}`);
+  if (!p) return;
+  main.innerHTML = `<div class="heading">${esc(p.name)}</div>
+    <div class="bar"><button class="btn" id="back">Back</button></div>
+    <div class="record"><div class="panel"><h3>Person</h3>${fieldsTable([
+      ["First name", esc(p.first)], ["Second name", esc(p.second)], ["Common name", esc(p.common) || "-"],
+      ["Born", dmy(p.born) || "-"], ["Nation", esc(p.nation_name)], ["Club", esc(p.club_name) || "-"],
+      ["Player", p.player ? "Yes" : "No"], ["Non-player", p.staff ? "Yes" : "No"], ["Id", p.id]])}</div>
+      ${picturePanel("face", p.picture, p.has_picture)}</div>`;
+  document.getElementById("back").onclick = () => history.back();
+  wirePicture("face", p.picture);
+}
+
+async function showPictures() {
+  setSide("pictures");
+  const r = await api("/api/check");
+  const part = (kind, x) => `<div class="panel"><h3>${kind === "badge" ? "Badges" : "Faces"}</h3>
+    <div class="note">Folder</div><code>${esc(x.folder) || "-"}</code>
+    <p>${x.shown} picture(s) that the game shows.</p>
+    ${x.unknown.length ? `<p class="warn">${x.unknown.length} PNG file(s) whose name matches no ${kind === "badge" ? "club" : "person"}:</p>
+      <div class="note">${x.unknown.map(esc).join("<br>")}</div>` : ""}
+    ${x.other.length ? `<p class="warn">${x.other.length} file(s) that are not PNG, which the game does not read:</p>
+      <div class="note">${x.other.map(esc).join("<br>")}</div>` : ""}</div>`;
+  main.innerHTML = `<div class="heading">Pictures</div>
+    ${info.pictures ? `<div class="record">${part("badge", r.badge)}${part("face", r.face)}</div>`
+      : `<div class="panel warn">Start the editor with --pictures &lt;the game's user folder&gt;.</div>`}`;
+}
+
+function route() {
+  const [view, arg] = location.hash.slice(1).split("/");
+  if (view === "club") return showClub(arg);
+  if (view === "person") return showPerson(arg);
+  if (view === "pictures") return showPictures();
+  return showList(views[view] ? view : "clubs");
+}
+views.clubs.open = c => { location.hash = `club/${c.id}`; };
+views.people.open = p => { location.hash = `person/${p.id}`; };
+for (const b of document.querySelectorAll("#side button")) b.onclick = () => { location.hash = b.dataset.view; };
+window.onhashchange = route;
+
+(async () => {
+  info = await api("/api/info") || {};
+  document.getElementById("info").innerHTML = `Data:<br>${esc(info.data)}<br><br>Pictures:<br>${esc(info.pictures || "-")}`;
+  route();
+})();
+</script>
+</body>
+</html>
