@@ -13,6 +13,7 @@
 #include "win.h"
 #include "pictures.h"
 #include "display_scale.h"
+#include "host.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -262,27 +263,17 @@ int pictures_load(void)
     return 1;
 }
 
-/* The picture blit 0x5e3fd0, cdecl (x, y, picture): a badge mixes with what is under it. */
-void o_005e3fd0(void);
-
-RT_WRAP(005e3fd0, picture_blit)
+void pictures_blend(const uint8_t *rgba, uint32_t w, uint32_t h, int32_t x, int32_t y, int32_t clip_y1, int32_t clip_y2)
 {
-    int32_t x = (int32_t)rd32(g_mem, cpu.esp + 4), y = (int32_t)rd32(g_mem, cpu.esp + 8);
-    uint32_t pic = rd32(g_mem, cpu.esp + 12), surf = rd32(g_mem, DRAW_SURFACE);
-    int i;
-    for (i = 0; i < ALPHA_MAX; i++)
-        if (pic && alpha[i].pic == pic && alpha[i].pixels == rd32(g_mem, pic + 0xc)) break;
-    if (i == ALPHA_MAX || !surf) {
-        o_005e3fd0();
-        return;
-    }
+    uint32_t surf = rd32(g_mem, DRAW_SURFACE);
+    if (!surf || !rgba) return;
     uint32_t sw = rd32(g_mem, surf + S_W), sh = rd32(g_mem, surf + S_H), pitch = rd32(g_mem, surf + S_PITCH);
     uint8_t *dst = g_mem + rd32(g_mem, surf + S_PIXELS);
-    for (uint32_t r = 0; r < alpha[i].h; r++)
-        for (uint32_t c = 0; c < alpha[i].w; c++) {
+    for (uint32_t r = 0; r < h; r++)
+        for (uint32_t c = 0; c < w; c++) {
             int32_t dx = x + (int32_t)c, dy = y + (int32_t)r;
-            if (dx < 0 || dy < 0 || dx >= (int32_t)sw || dy >= (int32_t)sh) continue;
-            const uint8_t *s = alpha[i].rgba + (r * alpha[i].w + c) * 4;
+            if (dx < 0 || dy < 0 || dx >= (int32_t)sw || dy >= (int32_t)sh || dy < clip_y1 || dy > clip_y2) continue;
+            const uint8_t *s = rgba + (r * w + c) * 4;
             if (!s[3]) continue;
             uint32_t at = (uint32_t)dy * pitch + (uint32_t)dx * 2;
             uint16_t d = (uint16_t)rd16(dst, at);
@@ -291,7 +282,80 @@ RT_WRAP(005e3fd0, picture_blit)
             for (int k = 0; k < 3; k++) m[k] = (s[k] * s[3] + under[k] * (255u - s[3])) / 255u;
             wr16(dst, at, rgb565(m[0], m[1], m[2]));
         }
+}
+
+/* The picture blit 0x5e3fd0, cdecl (x, y, picture): a badge mixes with what is under it. */
+void o_005e3fd0(void);
+
+RT_WRAP(005e3fd0, picture_blit)
+{
+    uint32_t pic = rd32(g_mem, cpu.esp + 12);
+    int i;
+    for (i = 0; i < ALPHA_MAX; i++)
+        if (pic && alpha[i].pic == pic && alpha[i].pixels == rd32(g_mem, pic + 0xc)) break;
+    if (i == ALPHA_MAX) {
+        o_005e3fd0();
+        return;
+    }
+    pictures_blend(alpha[i].rgba, alpha[i].w, alpha[i].h, (int32_t)rd32(g_mem, cpu.esp + 4),
+                   (int32_t)rd32(g_mem, cpu.esp + 8), 0, 0x7fffffff);
     rt_ret_cdecl(0);
+}
+
+#define BADGES_MAX 256
+static struct {
+    uint32_t club, h, w;
+    char name[64];                  /* the club's name, to see that the record is still that club */
+    uint8_t *rgba;                  /* NULL: no badge file */
+} badges[BADGES_MAX];               /* the small badges of the lists (list_badges.c), for the session */
+
+int pictures_any_badge(void)
+{
+    static int any = -1;
+    if (any < 0) {
+        char path[PICTURE_PATH];
+        snprintf(path, sizeof path, "%s/badges", win_user_dir);
+        any = 0;
+        HostDir *d = host_opendir(path);
+        if (d) {
+            for (const char *e; !any && (e = host_readdir(d));) any = e[0] != '.';
+            host_closedir(d);
+        }
+    }
+    return any;
+}
+
+const uint8_t *pictures_club_badge(uint32_t club, uint32_t h, uint32_t *w)
+{
+    static int next;
+    const char *club_name = win_str(club + CLUB_NAME);
+    for (int i = 0; i < BADGES_MAX; i++)
+        if (badges[i].club == club && badges[i].h == h && !strncmp(badges[i].name, club_name, sizeof badges[i].name - 1)) {
+            *w = badges[i].w;
+            return badges[i].rgba;
+        }
+    int i = next++ % BADGES_MAX;
+    free(badges[i].rgba);
+    memset(&badges[i], 0, sizeof badges[i]);
+    badges[i].club = club;
+    badges[i].h = h;
+    snprintf(badges[i].name, sizeof badges[i].name, "%s", club_name);
+    char name[300], path[PICTURE_PATH];
+    pictures_club_name(club, name, sizeof name);
+    snprintf(path, sizeof path, "%s/badges/%s.png", win_user_dir, name);
+    int sw = 0, sh = 0, comp = 0;
+    uint8_t *src = stbi_load(path, &sw, &sh, &comp, 4);
+    if (!src || sw <= 0 || sh <= 0) {
+        stbi_image_free(src);
+        return NULL;
+    }
+    badges[i].w = (uint32_t)(((uint64_t)h * (uint32_t)sw + (uint32_t)sh / 2) / (uint32_t)sh);
+    if (!badges[i].w) badges[i].w = 1;
+    badges[i].rgba = malloc((size_t)badges[i].w * h * 4);
+    if (badges[i].rgba) scale_rgba(badges[i].rgba, badges[i].w, h, src, sw, sh, 0, 0, (uint32_t)sw, (uint32_t)sh);
+    stbi_image_free(src);
+    *w = badges[i].w;
+    return badges[i].rgba;
 }
 
 /* The picture free 0x5e42b0, cdecl (picture): forgets a badge's RGBA pixels. */

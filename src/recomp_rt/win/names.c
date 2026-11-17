@@ -63,6 +63,8 @@ static int widget_index(uint32_t w)
 }
 
 void o_005ee590(void);
+int list_badges_before(uint32_t widget);
+void list_badges_after(void);
 void o_005e6d80(void);
 void o_0055f7c0(void);
 void foreign_forget(void);
@@ -98,7 +100,9 @@ RT_WRAP(005ee590, widget_draw)
 {
     uint32_t outer = drawn_widget;
     drawn_widget = cpu.ecx;
+    int badge = list_badges_before(drawn_widget);   /* a club's badge beside its name (list_badges.c) */
     o_005ee590();
+    if (badge) list_badges_after();
     int i = widget_index(drawn_widget);
     uint32_t surface = rd32(g_mem, DRAW_SURFACE);
     if (i >= 0 && surface) {

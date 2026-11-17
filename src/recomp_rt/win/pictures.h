@@ -38,6 +38,16 @@ int16_t pictures_add(Picture *p, uint32_t x1, uint32_t y1, uint32_t y2, int in_a
 /* Over the area of a picture, the link to a club (the club name link of comp_text). */
 void pictures_add_club_link(int16_t area, uint32_t club);
 
+/* 1 when the badges folder holds any file (looked at once a session). */
+int pictures_any_badge(void);
+
+/* The badge of a club, h screen pixels high, as RGBA pixels (kept for the session), or NULL when the club
+ * has no badge file; its width in *w. */
+const uint8_t *pictures_club_badge(uint32_t club, uint32_t h, uint32_t *w);
+
+/* Mixes w x h RGBA pixels onto the draw surface at (x, y), inside the clip y1..y2. */
+void pictures_blend(const uint8_t *rgba, uint32_t w, uint32_t h, int32_t x, int32_t y, int32_t clip_y1, int32_t clip_y2);
+
 /* From the picture load wrap of display.c: 1 when the path is one of ours (then cpu.eax is the picture). */
 int pictures_load(void);
 
