@@ -84,6 +84,12 @@
   .hist td { padding: 1px 4px; }
   .hist input { width: 100%; background: #d8d8d8; border: 1px solid #000; padding: 2px 4px; font: inherit; }
   .hist .num { width: 60px !important; }
+  .bgs { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+  .bg { width: 200px; text-align: center; }
+  .bg img, .nofile { width: 200px; height: 150px; border: 1px solid #000; display: block; }
+  .nofile { display: flex; align-items: center; justify-content: center; color: #ff8060; background: #111; }
+  .bg .note { word-break: break-all; }
+  .btn.small { padding: 2px 8px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -247,7 +253,7 @@ async function showRecord(kind, id) {
     <div class="bar"><button class="btn" id="back">Back</button><button class="btn" id="apply">Apply changes</button>
       <span class="note" id="emsg"></span></div>
     <div class="record">${rec.sections.slice(0, 1).map(panel).join("")}${pic ? picturePanel(pic.kind, pic.name, pic.has) : ""}
-      ${rec.sections.slice(1).map(panel).join("")}${staff}${hist}</div>
+      ${rec.backgrounds ? backgroundPanel(rec.backgrounds, kind) : ""}${rec.sections.slice(1).map(panel).join("")}${staff}${hist}</div>
 `;
   if (rec.locked) {
     const first = main.querySelector(".panel .form");
@@ -255,6 +261,7 @@ async function showRecord(kind, id) {
   }
   document.getElementById("back").onclick = () => history.back();
   if (pic) wirePicture(pic.kind, pic.name);
+  if (rec.backgrounds) wireBackgrounds(kind, id);
   wireInputs(main);
   document.getElementById("apply").onclick = async () => {
     const msg = document.getElementById("emsg");
@@ -337,6 +344,65 @@ async function toPng(f) {
   } catch (e) { return null; } finally { URL.revokeObjectURL(url); }
 }
 
+/* The background pictures of a record (pics.cfg): each picture, whether the game finds its file, and a new one
+   from any picture file, made here into an 800x600 RGN. */
+function backgroundPanel(b, kind) {
+  const pics = (list, won) => list.length ? `<div class="bgs">${list.map(p => `<div class="bg">${p.found
+      ? `<img src="/api/bg/picture?name=${encodeURIComponent(p.name)}&scale=4">` : '<div class="nofile">No file</div>'}
+      <div class="note">${esc(p.name)}</div>${b.can_save ? `<button class="btn small" data-bgdel="${esc(p.name)}" data-won="${won}">Remove</button>` : ""}</div>`).join("")}</div>`
+    : `<p class="note">None.</p>`;
+  const add = won => b.can_save ? `<div class="bar"><input type="file" data-bgfile="${won}" accept="image/*,.svg,.rgn">
+      <button class="btn" data-bgadd="${won}" disabled>Add</button></div>` : "";
+  return `<div class="panel"><h3>Backgrounds</h3><div class="note">pics.cfg [${esc(b.section.toUpperCase())}]</div>
+    <code>${esc(b.key)}</code>
+    ${kind === "comp" ? "" : pics(b.names, 0) + add(0)}
+    ${kind === "comp" || b.won.length ? `<div class="note" style="margin-top:8px">When it is won</div>${pics(b.won, 1)}${add(1)}` : ""}
+    ${kind === "comp" ? `<div class="note" style="margin-top:8px">Other pictures</div>${pics(b.names, 0)}${add(0)}` : ""}
+    ${b.can_save ? '<p class="note">Any picture file; saved as an 800x600 RGN in the user folder\'s Pictures, and its line in pics.cfg there.</p>'
+      : '<p class="warn">Start the editor with --user to add pictures.</p>'}<p class="note" id="bgmsg"></p></div>`;
+}
+
+function wireBackgrounds(kind, id) {
+  const msg = t => { document.getElementById("bgmsg").textContent = t; };
+  for (const b of main.querySelectorAll("[data-bgdel]")) b.onclick = async () => {
+    const r = await fetch(`/api/bg/remove?kind=${kind}&id=${id}&won=${b.dataset.won}&name=${encodeURIComponent(b.dataset.bgdel)}`, {method: "POST"});
+    if (r.ok) showRecord(kind, id); else msg("Could not remove.");
+  };
+  for (const f of main.querySelectorAll("[data-bgfile]")) {
+    const go = main.querySelector(`[data-bgadd="${f.dataset.bgfile}"]`);
+    let body = null;
+    f.onchange = async () => { body = f.files[0] ? await toRgn(f.files[0]) : null; go.disabled = !body;
+      msg(body ? "Ready: Add saves it." : "This file could not be read."); };
+    go.onclick = async () => {
+      const r = await fetch(`/api/bg/add?kind=${kind}&id=${id}&won=${f.dataset.bgfile}`, {method: "POST", body});
+      if (r.ok) showRecord(kind, id); else msg((await r.json()).error || "Could not save.");
+    };
+  }
+}
+
+/* A picture file as an RGN of 800x600 (the game's backgrounds): the picture fills the screen, cut to fit; an RGN
+   file is kept as it is. The format: 48-byte header and RGB565 pixels from the top (backgrounds.py). */
+async function toRgn(f, w = 800, h = 600) {
+  if (/\.rgn$/i.test(f.name)) return new Uint8Array(await f.arrayBuffer());
+  const url = URL.createObjectURL(f);
+  try {
+    const img = new Image();
+    await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; img.src = url; });
+    const iw = img.naturalWidth || w, ih = img.naturalHeight || h, k = Math.max(w / iw, h / ih);
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d");
+    g.drawImage(img, (w - iw * k) / 2, (h - ih * k) / 2, iw * k, ih * k);
+    const px = g.getImageData(0, 0, w, h).data;
+    const out = new DataView(new ArrayBuffer(48 + w * h * 2));
+    [w, h, w * h * 2, 0x01684c14, 32, 64, 0, 16, 0xf800, 0x07e0, 0x1f, 0].forEach((v, i) => out.setUint32(4 * i, v, true));
+    for (let i = 0; i < w * h; i++) {
+      const r = px[4 * i], gg = px[4 * i + 1], b = px[4 * i + 2];
+      out.setUint16(48 + 2 * i, ((r >> 3) << 11) | ((gg >> 2) << 5) | (b >> 3), true);
+    }
+    return new Uint8Array(out.buffer);
+  } catch (e) { return null; } finally { URL.revokeObjectURL(url); }
+}
+
 async function refreshSaveBar() {
   const i = await api("/api/info");
   const bar = document.getElementById("savebar");
@@ -361,9 +427,34 @@ async function showPictures() {
         ? '<span class="note">converted: the PNG is there, this file can go</span>'
         : `<button class="btn" data-convert="${kind}" data-file="${esc(o.file)}">Convert to PNG</button>`}</td></tr>`).join("")}</table>` : ""}
     <p class="note" id="msg-${kind}"></p></div>`;
+  const bgc = await api("/api/bg/check");
+  const bgPart = `<div class="panel wide"><h3>Backgrounds (pics.cfg)</h3>
+    <div class="note">The game reads</div><code>${esc(bgc.cfg) || "no pics.cfg"}</code>
+    <p>${bgc.entries} line(s).${bgc.user ? "" : ' <span class="warn">Start the editor with --user to change them.</span>'}</p>
+    ${bgc.unknown.length ? `<p class="warn">Keys that match no record (the game does not use them):</p>
+      <table>${bgc.unknown.map(u => `<tr><td>[${esc(u.section.toUpperCase())}] ${esc(u.key)}</td><td>${u.like.length && bgc.user
+        ? u.like.map(n => `<button class="btn" data-rekey="${esc(u.key)}" data-section="${u.section}" data-to="${esc(n)}">Use ${esc(n)}</button>`).join(" ")
+        : '<span class="note">no close name</span>'}</td></tr>`).join("")}</table>` : ""}
+    ${bgc.missing.length ? `<p class="warn">Names that no file has (the game drops them):</p>
+      <table>${bgc.missing.map(m => `<tr><td>[${esc(m.section.toUpperCase())}] ${esc(m.key)}</td><td>${esc(m.name)}</td></tr>`).join("")}</table>` : ""}
+    ${bgc.other.length ? `<p class="warn">Picture files that are not RGN (the game reads RGN only):</p>
+      <table>${bgc.other.map(o => `<tr><td>${esc(o.file)}</td><td>${o.converted ? '<span class="note">converted</span>'
+        : bgc.user ? `<button class="btn" data-bgconvert="${esc(o.file)}">Convert to RGN</button>` : ""}</td></tr>`).join("")}</table>` : ""}
+    <p class="note" id="msg-bg"></p></div>`;
   main.innerHTML = `<div class="heading">Pictures</div>
-    ${info.pictures ? `<div class="record">${part("badge", r.badge)}${part("face", r.face)}</div>`
-      : `<div class="panel warn">Start the editor with --user &lt;the game's user folder&gt;.</div>`}`;
+    ${info.pictures ? `<div class="record">${part("badge", r.badge)}${part("face", r.face)}${bgPart}</div>`
+      : `<div class="panel warn">Start the editor with --user &lt;the game's user folder&gt;.</div><div class="record">${bgPart}</div>`}`;
+  for (const b of main.querySelectorAll("[data-rekey]")) b.onclick = async () => {
+    const r = await fetch(`/api/bg/rekey?section=${b.dataset.section}&key=${encodeURIComponent(b.dataset.rekey)}&to=${encodeURIComponent(b.dataset.to)}`, {method: "POST"});
+    if (r.ok) showPictures(); else document.getElementById("msg-bg").textContent = "Could not change the key.";
+  };
+  for (const b of main.querySelectorAll("[data-bgconvert]")) b.onclick = async () => {
+    const f = b.dataset.bgconvert;
+    const raw = await fetch(`/api/bg/raw?file=${encodeURIComponent(f)}`);
+    const body = raw.ok ? await toRgn(new File([await raw.blob()], f, {type: raw.headers.get("Content-Type")})) : null;
+    const r = body ? await fetch(`/api/bg/convert?file=${encodeURIComponent(f)}`, {method: "POST", body}) : null;
+    if (r && r.ok) showPictures(); else document.getElementById("msg-bg").textContent = `Could not convert ${f}.`;
+  };
   for (const b of main.querySelectorAll("[data-rename]")) b.onclick = async () => {
     const k = b.dataset.rename;
     const res = await api(`/api/rename?kind=${k}&file=${encodeURIComponent(b.dataset.file)}&name=${encodeURIComponent(b.dataset.name)}`, {method: "POST"});

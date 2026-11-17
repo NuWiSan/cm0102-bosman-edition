@@ -1,6 +1,6 @@
 # Editor for every system, and new playable nations (fork NuWiSan)
 
-Status: editor slices 1 and 2 done (`tools/editor/`); the rest is research. Fork `NuWiSan/cm0102-bosman-edition`.
+Status: editor slices 1, 2 and 2b done (`tools/editor/`); the rest is research. Fork `NuWiSan/cm0102-bosman-edition`.
 
 Two features that depend on each other: a database editor that runs on Linux, Mac and Windows, and new nations in the League table, Switzerland first. Upstream keeps "competition structure changes of any kind" out of 0.8.0, so both are fork work.
 
@@ -121,6 +121,18 @@ Checked in a new game on saved data sets:
 - Thierry Henry: Finishing 15, Determination 7, Left Foot 1 (Preferred Foot "Right Only"), wage 25,000, expires 30.6.2006, 40 caps, all shown. Moved to Chelsea: he is in Chelsea's squad and not in Arsenal's.
 - Arsenal: Amateur (shown Semi-Professional, as above), stadium Wembley (Wembley, London, 78000), training facilities 3 (Awful facilities), balance -5,000,000 (Finances Ok), home background colour Blue 1 (the club heading is blue). Renaming Aston Villa stops the load at index.cpp 5809, so the editor refuses it.
 - The city London renamed: the info tab shows "Highbury, London Test". France's nationality renamed: the profile of a French player shows it. The English Premier Division's short name renamed: the club screen's button shows it.
+
+### 2b. Editor: background pictures (pics.cfg)
+Done. The page of a club, nation, competition, award, stadium and person shows its background pictures (its line in `pics.cfg`): each picture, or "No file" when the game finds no file for the name. A new one comes from any picture file: the page makes it an 800x600 RGN (the picture fills the screen, cut to fit), the editor saves it in `<user folder>/Pictures` under a name made from the key, and adds it to the record's line. For a competition the pictures shown when it is won (`{}`) have their own list. Remove takes a name out of the line; the file stays. The Pictures page lists the keys that match no record (with up to three close record names to change the key to; a key that another line already holds is merged into that line), the names that no file has, and the picture files that are not RGN, with a button that converts one and puts the RGN's name in its place in `pics.cfg`. The editor reads `pics.cfg` again before each use, so a change made by hand stays.
+
+How the game reads them (`tools/editor/backgrounds.py`; port `src/cm3/background.c` with the original's addresses):
+- Sections nations, clubs, stadiums, comps, awards, staff and the screens training, boardroom, trophy, transfer, si (`setup_background_system` `0x41b3d0`). A line is `key: name, name, {name}`; `#` starts a comment; spaces inside a name are dropped.
+- The key is the record's English name, compared without case (`_stricmp` `0x951c50`; `club_get_english_name` `0x545880` and the others); a person is `first second d/m/yyyy` with `*` for a missing name (`0x41cf74`, format `0x989ac8`). A key that matches no record is not used; only the switch `-verifypics` reports it (`verify_background_config` `0x41bc20`, called at `0x82830c`).
+- A name opens as `Pictures/<name>`, `Pictures/stadium/<name>` or `Pictures/old/<name>`, then the same with `_` in front; a name that no file has is dropped (`background_add_picture` `0x41b8c0`).
+- RGN: a 48-byte header (width, height, byte size of the pixels, then the fixed values 0x01684c14, 32, 64, 0, 16 and the RGB565 masks 0xf800, 0x7e0, 0x1f, 0) and RGB565 pixels from the top row (`gui_load_rgn_picture` `0x5e40d0`). The backgrounds are 800x600.
+- The game reads a file of the user folder before the game folder's (`src/recomp_rt/win/files.c`), so `pics.cfg` and the new pictures go to `<user folder>/Pictures`; the game folder does not change. `pics.cfg` belongs to every data set: a record renamed in a data set keeps the old key there, which the Pictures page then lists.
+
+Checked: a picture added to Arsenal on its page shows behind Arsenal's club screen in a new game (Background Changes on).
 
 ### 3. Read the original for B (Q1, Q2)
 Blocked by: the build files.

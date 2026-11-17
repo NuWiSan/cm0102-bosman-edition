@@ -36,6 +36,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "seasons", "own_db"))
 import cmdb  # noqa: E402
 import cmdb1  # noqa: E402
+import backgrounds  # noqa: E402
 import key_names  # noqa: E402
 import records  # noqa: E402
 
@@ -55,12 +56,14 @@ def file_name(text):
 class Data:
     """A data folder: the model of its tables, and the picture names of its clubs and people."""
 
-    def __init__(self, path):
+    def __init__(self, path, user=""):
         fmt = cmdb1.staff_format(path)
         self.folder = cmdb1.open_folder(path) if fmt == 1 else cmdb.Folder(path)
         exe = os.path.join(os.path.dirname(os.path.abspath(path)), "cm0102.exe")
         keys = {c: key_names.load(exe, c) for c in KEY_CHAINS} if os.path.exists(exe) else None
         self.model = records.Model(self.folder, fmt, keys)
+        self.backgrounds = backgrounds.Backgrounds(os.path.join(os.path.dirname(os.path.abspath(path)), "Pictures"),
+                                                   os.path.join(user, "Pictures") if user else None)
 
     def picture(self, kind, i):
         """(picture kind, file name) of a record, or None."""
@@ -71,16 +74,34 @@ class Data:
             return "face", self.face_name(i)
         return None
 
-    def face_name(self, pid):
-        """The game's key (pictures_person_name): first and second name, '_' for a missing one, and the birth date
-        d-m-yyyy as the game's date functions give it from the stored day of the year (the common-year table, also
-        in a leap year: "Ashley Cole 20-12-1980") and year, also for a person with no date."""
+    def birth(self, pid):
+        """(first name, second name, day, month, year) of a person, the date as the game's date functions give it
+        from the stored day of the year (the common-year table, also in a leap year) and year."""
         m, r = self.model, self.model.rows["person"][pid]
         first, second = (m.name(t, struct.unpack_from("<i", r, o)[0]) for t, o in (("first", 4), ("second", 8)))
         day, year = struct.unpack_from("<hH", r, 0x10)
         day = min(max(day, 0), 364)
         mo = max(i for i in range(12) if cmdb1.CUM[i] <= day)
-        return file_name(f"{first or '_'} {second or '_'} {day - cmdb1.CUM[mo] + 1}-{mo + 1}-{year}")
+        return first, second, day - cmdb1.CUM[mo] + 1, mo + 1, year
+
+    def background_key(self, kind, i):
+        """The pics.cfg key of a record: its name, or for a person "first second d/m/yyyy" with "*" for a missing
+        name (0x41cf74)."""
+        if kind == "person":
+            first, second, d, mo, y = self.birth(i)
+            return f"{first or '*'} {second or '*'} {d}/{mo}/{y}"
+        return self.model.name(kind, i)
+
+    def background_keys(self, section):
+        kind = next(k for k, s in backgrounds.RECORD_SECTIONS.items() if s == section)
+        return {self.background_key(kind, i).lower(): self.background_key(kind, i) for i in self.model.rows[kind]}
+
+    def face_name(self, pid):
+        """The game's key (pictures_person_name): first and second name, '_' for a missing one, and the birth date
+        d-m-yyyy as the game's date functions give it from the stored day of the year (the common-year table, also
+        in a leap year: "Ashley Cole 20-12-1980") and year, also for a person with no date."""
+        first, second, d, mo, y = self.birth(pid)
+        return file_name(f"{first or '_'} {second or '_'} {d}-{mo}-{y}")
 
     def picture_names(self, kind):
         if kind == "badge":
@@ -127,6 +148,7 @@ class Pictures:
 
 def make_handler(data, pictures):
     model = data.model
+    bg = data.backgrounds
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -153,6 +175,40 @@ def make_handler(data, pictures):
                 out["picture"] = dict(kind=p[0], name=p[1], has=pictures.exists(*p))
             return out
 
+        def with_backgrounds(self, kind, i, out):
+            section = backgrounds.RECORD_SECTIONS.get(kind)
+            if section and out:
+                bg.load()                       # pics.cfg as it is now: a person may change it by hand
+                key = data.background_key(kind, i)
+                e = bg.entry(section, key)
+                item = lambda n: dict(name=n, found=bool(bg.file(n)))  # noqa: E731
+                out["backgrounds"] = dict(section=section, key=key, names=[item(n) for n in (e.names if e else [])],
+                                          won=[item(n) for n in (e.won if e else [])], can_save=bool(bg.user))
+            return out
+
+        def bg_check(self):
+            """pics.cfg against the data and the files: keys that match no record, names that no file has, picture
+            files that are not RGN (the game reads RGN only)."""
+            bg.load()
+            unknown, missing = [], []
+            keys = {}
+            for e in bg.entries():
+                if e.section in backgrounds.RECORD_SECTIONS.values():
+                    if e.section not in keys:
+                        keys[e.section] = data.background_keys(e.section)
+                    if e.key.lower() not in keys[e.section]:
+                        like = difflib.get_close_matches(e.key, list(keys[e.section].values()), 3, 0.7) \
+                            if e.section != "staff" else []
+                        unknown.append(dict(section=e.section, key=e.key, like=like))
+                for n in e.names + e.won:
+                    if not bg.file(n):
+                        missing.append(dict(section=e.section, key=e.key, name=n))
+            other = [dict(file=os.path.basename(p), converted=bool(bg.file(os.path.splitext(os.path.basename(p))[0] + ".rgn")))
+                     for f, p in sorted(bg.files().items())
+                     if os.path.splitext(f)[1] in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".svg")]
+            return dict(cfg=bg.cfg_path() or "", user=bg.user or "", unknown=unknown, missing=missing, other=other,
+                        entries=sum(1 for _ in bg.entries()))
+
         def do_GET(self):
             url = urllib.parse.urlparse(self.path)
             q = urllib.parse.parse_qs(url.query)
@@ -175,7 +231,26 @@ def make_handler(data, pictures):
             if parts[:2] == ["api", "rec"] and len(parts) == 4 and parts[2] in model.tables:
                 i = int(parts[3]) if parts[3].lstrip("-").isdigit() else -1
                 rec = model.record(parts[2], i)
-                return self.send(200, self.with_picture(parts[2], i, rec)) if rec else self.send(404, {})
+                if not rec:
+                    return self.send(404, {})
+                return self.send(200, self.with_backgrounds(parts[2], i, self.with_picture(parts[2], i, rec)))
+            if url.path == "/api/bg/picture":
+                p = bg.file(arg("name"))
+                if not p:
+                    return self.send(404, {})
+                b = open(p, "rb").read()
+                if backgrounds.is_rgn(b):
+                    return self.send(200, backgrounds.rgn_to_png(b, int(arg("scale", "2") or 2)), "image/png")
+                return self.send(415, {})
+            if url.path == "/api/bg/raw":
+                p = bg.files().get(arg("file").lower())
+                if not p:
+                    return self.send(404, {})
+                types = {".svg": "image/svg+xml", ".webp": "image/webp", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                         ".png": "image/png", ".gif": "image/gif", ".bmp": "image/bmp"}
+                return self.send(200, open(p, "rb").read(), types.get(os.path.splitext(p)[1].lower(), ""))
+            if url.path == "/api/bg/check":
+                return self.send(200, self.bg_check())
             if url.path == "/api/picture":
                 p = pictures.path(arg("kind"), arg("name")) if arg("kind") in PICTURE_FOLDERS else None
                 if not p or not os.path.isfile(p):
@@ -220,6 +295,8 @@ def make_handler(data, pictures):
             parts = url.path.strip("/").split("/")
             if url.path == "/api/rename" and pictures.user:
                 return self.rename(q)
+            if parts[:2] == ["api", "bg"] and bg.user:
+                return self.bg_post(parts[2] if len(parts) > 2 else "", q)
             if parts[:2] in (["api", "rec"], ["api", "history"]) and len(parts) == 4:
                 i = int(parts[3]) if parts[3].lstrip("-").isdigit() else -1
                 try:
@@ -228,8 +305,7 @@ def make_handler(data, pictures):
                     return self.send(400, dict(error="bad request"))
                 if parts[1] == "rec":
                     err = model.apply(parts[2], i, ch)
-                    return self.send(400, dict(error=err)) if err else \
-                        self.send(200, self.with_picture(parts[2], i, model.record(parts[2], i)))
+                    return self.send(400, dict(error=err)) if err else self.send(200, dict(ok=True))
                 err = model.apply_history(parts[2], i, ch)
                 return self.send(400, dict(error=err)) if err else self.send(200, dict(ok=True))
             if url.path == "/api/save" and pictures.user:
@@ -258,6 +334,64 @@ def make_handler(data, pictures):
             os.replace(path + ".part", path)
             return self.send(200, dict(saved=os.path.basename(path)))
 
+        def bg_post(self, what, q):
+            """add: a new picture (RGN body) for a record; remove: a name out of a record's line (the file stays);
+            convert: an RGN made from a picture file that is not RGN, put in place of its name in pics.cfg;
+            rekey: a key that matches no record gets the name of one."""
+            arg = lambda k: q.get(k, [""])[0]  # noqa: E731
+            bg.load()
+            try:
+                if what in ("add", "remove"):
+                    kind, i = arg("kind"), int(arg("id") or -1)
+                    section = backgrounds.RECORD_SECTIONS.get(kind)
+                    if not section or not model.exists(kind, i):
+                        return self.send(400, dict(error="no such record"))
+                    key = data.background_key(kind, i)
+                    e = bg.entry(section, key)
+                    names, won = (list(e.names), list(e.won)) if e else ([], [])
+                    target = won if arg("won") == "1" else names
+                    if what == "add":
+                        size = int(self.headers.get("Content-Length", "0") or 0)
+                        if not 0 < size <= MAX_PICTURE:
+                            return self.send(400, dict(error="bad picture"))
+                        name = bg.new_name(key)
+                        bg.write_file(name, self.rfile.read(size))
+                        target.append(name)
+                    elif arg("name") in target:
+                        target.remove(arg("name"))
+                    bg.set(section, e.key if e else key, names, won)
+                    bg.save()
+                    return self.send(200, dict(ok=True))
+                if what == "convert":
+                    old = arg("file")
+                    size = int(self.headers.get("Content-Length", "0") or 0)
+                    if not old or not 0 < size <= MAX_PICTURE:
+                        return self.send(400, dict(error="bad picture"))
+                    new = os.path.splitext(old)[0] + ".rgn"
+                    if bg.file(new):
+                        return self.send(409, dict(error="an RGN of that name exists"))
+                    bg.write_file(new, self.rfile.read(size))
+                    for e in bg.entries():
+                        e.names = [new if n.lower() == old.lower() else n for n in e.names]
+                        e.won = [new if n.lower() == old.lower() else n for n in e.won]
+                    bg.save()
+                    return self.send(200, dict(saved=new))
+                if what == "rekey":
+                    e = bg.entry(arg("section"), arg("key"))
+                    if not e or arg("to").lower() not in data.background_keys(e.section):
+                        return self.send(400, dict(error="no such record"))
+                    into = bg.entry(e.section, arg("to"))
+                    if into:                    # one line per key: the game takes the first that matches
+                        bg.set(e.section, into.key, into.names + e.names, into.won + e.won)
+                        bg.lines.remove(e)
+                    else:
+                        e.key = arg("to")
+                    bg.save()
+                    return self.send(200, dict(ok=True))
+            except ValueError as err:
+                return self.send(400, dict(error=str(err)))
+            return self.send(404, {})
+
         def rename(self, q):
             """A PNG file of the folder gets the name of a record. Never over another file."""
             kind, old, new = (q.get(k, [""])[0] for k in ("kind", "file", "name"))
@@ -282,7 +416,7 @@ def main(argv):
     ap.add_argument("--port", type=int, default=8102)
     ap.add_argument("--no-browser", action="store_true")
     a = ap.parse_args(argv)
-    data = Data(os.path.abspath(a.data))
+    data = Data(os.path.abspath(a.data), os.path.abspath(a.user) if a.user else "")
     pictures = Pictures(os.path.abspath(a.user) if a.user else "")
     server = http.server.ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(data, pictures))
     url = f"http://127.0.0.1:{a.port}/"
