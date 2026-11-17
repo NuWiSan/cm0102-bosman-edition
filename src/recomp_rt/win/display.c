@@ -62,6 +62,13 @@ static void scale_rect_args(int first)
 
 void o_0055fba0(void);
 
+/* Face frame and club badges of the staff profile and the club screen (heading_pictures.c). */
+void heading_pictures_area_before(void);
+void heading_pictures_widget_before(int comp_text);
+void heading_pictures_comp_text_before(void);
+void heading_pictures_comp_text_after(void);
+int pictures_load(void);           /* pictures.c */
+
 /* Match columns (columns.c): new column counts and column numbers for two lists of the match screens. */
 void columns_area_before(void);
 void columns_area_after(int area, int unwound);
@@ -78,6 +85,7 @@ void o_005e5ad0(void);
 RT_WRAP(0055fba0, area_create)
 {
     columns_area_before();
+    heading_pictures_area_before();
     scale_rect_args(0);
     groups_area_before();
     o_0055fba0();
@@ -95,12 +103,14 @@ void o_004aeaf0(void);
 
 RT_WRAP(004aeaf0, comp_text)
 {
+    heading_pictures_comp_text_before();
     if (rt_screen_w != CLASSIC_W) {
         uint32_t a = cpu.esp + 4;
         wr32(g_mem, a + 4, scale(rd32(g_mem, a + 4), rt_screen_w, CLASSIC_W, 0));
         wr32(g_mem, a + 8, scale(rd32(g_mem, a + 8), rt_screen_w, CLASSIC_W, 1));
     }
     o_004aeaf0();
+    heading_pictures_comp_text_after();
 }
 
 /* 1 when the widget create comes from 0x4aeaf0: its x values are screen pixels already. */
@@ -118,6 +128,7 @@ RT_WRAP(0055f990, widget_create)
     int holiday = holiday_widget_before();
     int options_item = options_screen_widget_before();
     commentary_widget_before();
+    heading_pictures_widget_before(from_comp_text());
     if (rt_screen_w != CLASSIC_W && from_comp_text()) {
         uint32_t a = cpu.esp + 8;
         wr32(g_mem, a + 4, scale(rd32(g_mem, a + 4), rt_screen_h, CLASSIC_H, 0));
@@ -216,6 +227,10 @@ static int resize_picture(uint32_t pic, uint32_t w, uint32_t h, uint32_t step_x,
  *   screen height and by the factor of the screen width, as the area that holds it. */
 RT_WRAP(005e40d0, picture_load)
 {
+    if (pictures_load()) {              /* a picture of pictures.c, made at its screen size */
+        rt_ret_cdecl(cpu.eax);
+        return;
+    }
     o_005e40d0();
     uint32_t pic = cpu.eax;
     if (rt_unwinding || !pic || rt_screen_w == CLASSIC_W) return;

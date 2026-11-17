@@ -342,6 +342,9 @@ int main(void)
             CHECK(options_set(oid, "folder:Mixed Case") == 1 && options_enum(oid) == DATABASE_CUSTOM);
         } else if (!strcmp(options_name(oid), "season")) {
             CHECK(options_set(oid, "2026/27") == 1 && options_enum(oid) == 25);
+        } else if (!strcmp(options_name(oid), "player_faces")) {
+            CHECK(options_set(oid, "background") == 1 && options_enum(oid) == FACES_BACKGROUND);
+            CHECK(options_set(oid, "frame") == 1 && options_enum(oid) == FACES_FRAME);
         } else {
             CHECK(options_set(oid, "off") == 1 && options_bool(oid) == 0);
         }

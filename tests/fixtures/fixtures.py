@@ -151,6 +151,9 @@ def play(program, game, folder, name, steps_file, out, mode, options, days):
         os.makedirs(user)
         shutil.copyfile(save, os.path.join(user, name))
         write_settings(user, mode, options)
+        extra_files = os.environ.get("FIXTURES_USER_FILES")    # a folder copied into the user folder, e.g. faces/
+        if extra_files:
+            shutil.copytree(extra_files, user, dirs_exist_ok=True)
         r, took = run(program, game, mode, user, steps, env, 2400)
         with open(os.path.join(out, "stderr.txt"), "w") as f:
             f.write(r.stderr)

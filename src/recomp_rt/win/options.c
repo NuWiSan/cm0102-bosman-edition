@@ -67,6 +67,11 @@ static const OptionDef defs[OPT_COUNT] = {
     /* 0.7.0 slice 6 (Q38): the Network tab of the Options box sets it; the join check reads it (net_lobby.c). */
     [OPT_GAME_PASSWORD] = {"game_password", KIND_TEXT, "", NULL,
         "game_password = the password that a human manager types to join a network game that you host. Empty: no password."},
+    /* Fork NuWiSan, spec 2026-11-17-badges-and-faces: read when a staff profile opens (heading_pictures.c). */
+    [OPT_PLAYER_FACES] = {"player_faces", KIND_ENUM, "frame", "frame|background",
+        "player_faces = frame shows faces/<person id>.png of the user folder in a frame at the top left of a staff profile. background keeps the original: only the background pictures of pics.cfg."},
+    [OPT_CLUB_BADGES] = {"club_badges", KIND_SWITCH, "on", NULL,
+        "club_badges = on shows badges/<club id>.png of the user folder before a person's name on the staff profile, in place of the club's name."},
 };
 
 #define TEXT_MAX 1100
