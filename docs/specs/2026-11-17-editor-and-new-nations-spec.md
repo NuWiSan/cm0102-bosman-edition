@@ -135,13 +135,16 @@ How the game reads them (`tools/editor/backgrounds.py`; port `src/cm3/background
 Checked: a picture added to Arsenal on its page shows behind Arsenal's club screen in a new game (Background Changes on).
 
 ### 2c. Editor: new records
-Done. New copy, on the page of a club, person, stadium, city, official or name, makes a new record with the values of that one and opens it. The new row goes after the table's rows, with the next id, and Save as writes each table followed by its new rows and `index.dat` with the new counts and offsets (the tables of `staff.dat` move with the rows before them). The game takes the counts and offsets from `index.dat`.
-- A person gets new player and non-player rows (copies) when the original has them, no club, no national team and job 0; the clubs' lists follow when the club and job are set.
-- A club gets no people and no division, last division or reserve division. The ids equal the rows, and the national teams follow the clubs in the same id range, so a new club takes the first national team's id and the national teams move up by one, with every link to them: the club links of the load's id pass (club rivals, person club and national team, favourite and disliked clubs, career, comp history).
-- A new name (first, second or common) is the way to give a person a name that the tables lack.
+Done. New, on the list of clubs, people, stadiums, cities, officials and names, makes an empty record with the name given there (a person: first and second name, and player or non-player) and opens it. New copy, on a record's page, makes a new record with that record's values. The new row goes after the table's rows, with the next id, and Save as writes each table followed by its new rows and `index.dat` with the new counts and offsets (the tables of `staff.dat` move with the rows before them). The game takes the counts and offsets from `index.dat`.
+- An empty record holds zeros and every link empty, as many records of the data do; a club is Professional with reputation 1 and training facilities 1. A person's names come from the name tables; a name that a table lacks becomes a new name there. A person gets an empty player or non-player row.
+- A copy of a person gets copies of its player and non-player rows, no club, no national team and job 0. The clubs' lists follow when the club and job are set.
+- A new club, empty or copied, has no people and no division, last division or reserve division. The ids equal the rows, and the national teams follow the clubs in the same id range, so a new club takes the first national team's id and the national teams move up by one, with every link to them: the club links of the load's id pass (club rivals, person club and national team, favourite and disliked clubs, career, comp history).
+- A division or reserve division takes no more clubs than it holds in the data: a league takes its clubs by the division (0x56ecb0) and plays as many as the data puts there. A club goes into a full division only after another club leaves it; the club that leaves is in no division, with the clubs outside the leagues.
 - Not supported: new nations and competitions (they need the custom league work, slices 3 to 6), and deleting records (other records link to the ids).
 
-Checked: a new club in Switzerland and two new copies of Thierry Henry, one with a new second name "Henrytest" in Arsenal's squad; a new game loads the data set, and Arsenal's squad shows "Henrytest, T".
+Checked in a new game:
+- Two copies of Thierry Henry, one with a new second name "Henrytest", in Arsenal's squad: Arsenal's squad shows "Henrytest, T".
+- An empty club "Lugano Novo" in the English Premier Division in place of Sunderland, and an empty player in Arsenal's squad: the data set loads and the game starts.
 
 ### 3. Read the original for B (Q1, Q2)
 Blocked by: the build files.

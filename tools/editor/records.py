@@ -140,7 +140,7 @@ CLUB = Table("club", "Clubs", (0, 1), 581, [
     ("Club", [F("name", "Name", 4, "text", size=51, lock="club"), F("short", "Short name", 0x38, "text", size=26),
               F("nation", "Nation", 0x53, "ref", ref="nation"),
               F("division", "Division", 0x57, "ref", ref="comp",
-                note="A league takes its clubs by this (0x56ecb0): one club more makes that league one club larger."),
+                note="A division takes no more clubs than it has in the data: to put a club in, another leaves it."),
               F("last_division", "Last division", 0x5B, "ref", ref="comp"),
               F("last_position", "Last position", 0x5F, hi=30),
               F("reserve_division", "Reserve division", 0x60, "ref", ref="comp"),
@@ -162,6 +162,8 @@ CLUB = Table("club", "Clubs", (0, 1), 581, [
      + refs("liked", numbered("Favourite person", 3), 0x9B, "person", "staff", NONE1)
      + refs("disliked", numbered("Disliked person", 3), 0xA7, "person", "staff", NONE1)),
 ], ["nation", "division", "reputation"], picture="badge", lock="club")
+
+DIVISION_FIELDS = {"division": 0x57, "reserve_division": 0x60}
 
 # The club's staff lists (read only: the person page moves people), as database_leave_club 0x53c190 uses them.
 CLUB_STAFF = [("Chairman", 0xBF, 1), ("Directors", 0xC3, 3), ("Manager", 0xCF, 1), ("Assistant", 0xD3, 1),
@@ -376,6 +378,13 @@ class Model:
         self.links = {"player": (folder.rows(10), 0x91 if fmt == 1 else 0x61),
                       "np": (folder.rows(9), 0x99 if fmt == 1 else 0x69)}
         self.added = {}                    # table id: the rows added after the file's rows (Model.add)
+        # How many clubs each division and reserve division holds in the data: a league takes its clubs by the
+        # division (0x56ecb0) and its fixtures are made for that many, so no division gets more (apply).
+        self.division_size = {}
+        for o in DIVISION_FIELDS.values():
+            for r in self.rows["club"].values():
+                d = struct.unpack_from("<i", r, o)[0]
+                self.division_size[(o, d)] = self.division_size.get((o, d), 0) + 1
         self.history_rows = {k: [r for tid in h[1] for r in folder.rows(tid)] for k, h in HISTORIES.items()}
         self.history_index = {}
         self.changed = set()
@@ -568,8 +577,24 @@ class Model:
                 return self.undo(rows, saved, err)
         if kind == "person" and (err := self.move(i, before)):
             return self.undo(rows, saved, err)
+        if kind == "club" and (err := self.division_full(i, changes)):
+            return self.undo(rows, saved, err)
         self.changed.add((kind, i))
         self.names.clear()
+        return None
+
+    def division_full(self, i, changes):
+        """Why a club cannot go to its new division or reserve division: the division has its clubs already."""
+        for key, o in DIVISION_FIELDS.items():
+            if key not in changes:
+                continue
+            d = struct.unpack_from("<i", self.rows["club"][i], o)[0]
+            if d < 0:
+                continue
+            now = sum(1 for r in self.rows["club"].values() if struct.unpack_from("<i", r, o)[0] == d)
+            if now > self.division_size.get((o, d), 0):
+                return (f"the {self.name('comp', d)} has its {self.division_size.get((o, d), 0)} clubs: a club must "
+                        "leave it first (a league plays the clubs of the data's count)")
         return None
 
     def undo(self, rows, saved, err):
@@ -649,18 +674,73 @@ class Model:
         self.added.setdefault(tid, []).append(row)
         return row
 
-    def add(self, kind, template):
-        """A new record, a copy of the record template with the next id. Returns (id, None) or (None, error).
-        The ids equal the rows, so a new club takes the first national team's id and the national teams move up
-        by one, with every link to them (the club links of the load's id pass: club rivals, person club and
-        national team, likes, career and comp history)."""
+    def blank(self, kind):
+        """An empty row of a table: zeros, and every link empty as in the data."""
+        t = self.tables[kind]
+        size = t.size or (157 if self.format == 1 else 110)
+        row = bytearray(size)
+        for f in t.fields():
+            if f.row == "main" and f.kind in ("ref", "name", "colour", "staff"):
+                struct.pack_into("<i", row, f.off, f.none)
+        if kind == "club":
+            row[0x64] = 1                                   # Professional
+            struct.pack_into("<h", row, 0x80, 1)            # the lowest reputation the reader keeps (0 becomes 1)
+            row[0x7F] = 1
+        if kind == "person":
+            for o in (4, 8, 0xC):                           # names: set by add
+                struct.pack_into("<i", row, o, 0)
+            cmdb1.put_date(row, 0x10, None)
+            for o in (0x3E, 0x46, 0x29, 0x31):
+                cmdb1.put_date(row, o, None)
+        return row
+
+    def name_id(self, kind, text):
+        """The id of a name of a name table (first, second, common), a new name when the table lacks it."""
+        if not text:
+            return 0                                        # row 0 of the first and common names is empty
+        for i, r in self.rows[kind].items():
+            if cmdb.cstr(r, 0, 51) == text:
+                return i
+        row = bytearray(60)
+        tid = self.tables[kind].tids[0]
+        i = self.count(tid)
+        struct.pack_into("<i", row, 0x33, i)
+        struct.pack_into("<i", row, 0x37, NONE)
+        err = self.tables[kind].sections[0][1][0].write(row, text, self)
+        if err:
+            raise ValueError(err)
+        self.append(tid, row)
+        self.rows[kind][i] = row
+        self.changed.add((kind, i))
+        return i
+
+    def add(self, kind, template=None, name="", second="", role="player"):
+        """A new record with the next id: a copy of the record template, or with no template an empty record
+        with the name (a person: first name and second name; role player or np). Returns (id, None) or
+        (None, error). The ids equal the rows, so a new club takes the first national team's id and the national
+        teams move up by one, with every link to them (the club links of the load's id pass: club rivals, person
+        club and national team, likes, career and comp history)."""
         t = self.tables.get(kind)
-        if t is None or not self.exists(kind, template):
+        if t is None or (template is not None and not self.exists(kind, template)):
             return None, "no such record"
         if kind not in ("club", "person", "stadium", "city", "official", "first", "second", "common"):
             return None, "new records of this table are not supported"
-        src = self.rows[kind][template]
-        if kind == "club" and template >= self.folder.idx[0]["count"] + len(self.added.get(0, [])):
+        if template is None:
+            if kind == "person" and not second.strip():
+                return None, "give the person a second name"
+            if kind != "person" and not name.strip():
+                return None, "give the new record a name"
+            if kind == "person" and role not in ("player", "np"):
+                return None, "a person is a player or a non-player"
+            if t.lock and self.keys is not None and name.strip().lower() in self.keys[t.lock]:
+                return None, "the game finds a record by that name: pick another name"
+        src = self.rows[kind][template] if template is not None else self.blank(kind)
+        if kind != "person":
+            field = next(f for f in t.fields() if f.key == "name")
+            text = name.strip() if template is None else (field.read(src) + " (new)")[:field.size - 1]
+            if err := field.write(bytearray(src), text, self):
+                return None, err
+        if kind == "club" and template is not None and template >= self.folder.idx[0]["count"] + len(self.added.get(0, [])):
             return None, "a new national team needs a new nation"
         row = bytearray(src)
         if kind == "club":
@@ -679,16 +759,23 @@ class Model:
             struct.pack_into("<i", row, 0x24, NONE)
             row[0x3D] = 0
             row[0x28] = 0
-            for role, tid in (("player", 10), ("np", 9)):
-                r = self.row(kind, template, role)
-                off = self.links[role][1]
+            if template is None:
+                row[0x5F] = 2 if role == "player" else 1
+                struct.pack_into("<iii", row, 4, self.name_id("first", name.strip()),
+                                 self.name_id("second", second.strip()), 0)
+            for link_role, tid in (("player", 10), ("np", 9)):
+                if template is None:
+                    r = bytearray(70 if tid == 10 else 68) if link_role == role else None
+                else:
+                    r = self.row(kind, template, link_role)
+                off = self.links[link_role][1]
                 if r is None:
                     struct.pack_into("<i", row, off, NONE1)
                     continue
                 j = self.count(tid)
                 link = bytearray(r)
                 struct.pack_into("<i", link, 0, j)
-                self.links[role][0].append(self.append(tid, link))
+                self.links[link_role][0].append(self.append(tid, link))
                 struct.pack_into("<i", row, off, j)
             self.append(6, row)
         else:
@@ -697,10 +784,10 @@ class Model:
             struct.pack_into("<i", row, 0x33 if kind in ("first", "second", "common") else 0, i)
             self.append(tid, row)
         self.rows[kind][i] = row
-        if kind not in ("person", "first", "second", "common"):
-            name = next(f for f in t.fields() if f.key == "name")
-            text = (name.read(row) + " (new)")[:name.size - 1]
-            row[name.off:name.off + name.size] = text.encode("latin-1") + bytes(name.size - len(text))
+        if kind != "person":
+            field.write(row, text, self)
+            if kind == "club" and template is None:
+                self.tables[kind].sections[0][1][1].write(row, text[:25], self)   # the short name
         self.changed.add((kind, i))
         self.names.clear()
         return i, None

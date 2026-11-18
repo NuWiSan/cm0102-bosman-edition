@@ -90,6 +90,8 @@
   .nofile { display: flex; align-items: center; justify-content: center; color: #ff8060; background: #111; }
   .bg .note { word-break: break-all; }
   .btn.small { padding: 2px 8px; font-size: 12px; }
+  .newbox { margin-left: auto; display: flex; gap: 6px; }
+  .newbox input { width: 160px; }
 </style>
 </head>
 <body>
@@ -137,8 +139,22 @@ async function showList(kind, q = "", offset = 0) {
   const names = ["first", "second", "common"].includes(kind) ? `<div class="bar">${["first", "second", "common"].map(k =>
     `<button class="btn" data-names="${k}" ${k === kind ? "disabled" : ""}>${PAGE_TITLES[k]}</button>`).join("")}</div>` : "";
   main.innerHTML = `<div class="heading">${esc(title)}</div>${names}
-    <div class="bar"><input id="q" placeholder="Search" value="${esc(q)}"><button class="btn" id="go">Search</button></div>
+    <div class="bar"><input id="q" placeholder="Search" value="${esc(q)}"><button class="btn" id="go">Search</button>
+      ${COPIES.includes(kind) ? `<span class="newbox">${kind === "person"
+        ? `<input id="n1" placeholder="First name"><input id="n2" placeholder="Second name">
+           <select id="nrole"><option value="player">Player</option><option value="np">Non-player</option></select>`
+        : `<input id="n1" placeholder="Name of the new record">`}<button class="btn" id="new">New</button></span>` : ""}</div>
+    <p class="warn" id="nmsg"></p>
     <div class="list" id="list"></div><div class="pager" id="pager"></div>`;
+  const nb = document.getElementById("new");
+  if (nb) nb.onclick = async () => {
+    const v = id => (document.getElementById(id) || {}).value || "";
+    const body = kind === "person" ? {name: v("n1"), second: v("n2"), role: v("nrole")} : {name: v("n1")};
+    const r = await fetch(`/api/new/${kind}/blank`, {method: "POST", body: JSON.stringify(body)});
+    const res = await r.json();
+    if (!r.ok) { document.getElementById("nmsg").textContent = res.error; return; }
+    location.hash = `${kind}/${res.id}`;
+  };
   for (const b of main.querySelectorAll("[data-names]")) b.onclick = () => { location.hash = b.dataset.names; };
   const input = document.getElementById("q");
   const run = (o = 0) => showList(kind, input.value, o);
